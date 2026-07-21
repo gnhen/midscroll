@@ -34,6 +34,10 @@ Details:
   (plasmashell, xfdesktop, waybar, GNOME Shell, ...) is focused midscroll
   pauses, so a middle-drag can't hijack the desktop. Turn on **Enable on
   desktop & panels** (`DESKTOP_SCROLL = true`) if you want it there too.
+- By default the cursor is anchored at the press point during a drag-scroll.
+  Turn on **free cursor** (`FREE_CURSOR = true`) to let it follow the hand
+  instead — useful if you dislike the locked feel, but note the scroll jumps
+  to whatever window is under the cursor once it leaves the original one.
 
 ## Install
 
@@ -100,6 +104,7 @@ TICK_HZ = 90              # scroll event rate (higher = smoother)
 NATURAL = false           # true = inverted / touchscreen-style direction
 TOGGLE_MODE = false       # true = click to start/stop instead of hold-drag
 DESKTOP_SCROLL = false    # true = also autoscroll over the desktop and panels
+FREE_CURSOR = false       # true = cursor moves freely during drag-scroll
 BLACKLIST = freecad, orcaslicer, minecraft
                           # window-class substrings that pause midscroll
                           # (apps with native middle-drag); '' disables
@@ -120,8 +125,8 @@ midscroll --help          # full option list
 
 `--debug` turns on debug logging (device probing, focus changes, scroll
 starts); `--blacklist "app1, app2"`, `--natural` / `--no-natural`,
-`--toggle-mode` / `--no-toggle-mode` and `--desktop` / `--no-desktop`
-(autoscroll over the desktop and panels) toggle the corresponding behaviors.
+`--toggle-mode` / `--no-toggle-mode` and `--desktop` / `--no-desktop`, `--free-cursor` / `--no-free-cursor`
+(autoscroll over the desktop and panels, and free-cursor mode) toggle the corresponding behaviors.
 
 ## Pause / uninstall
 

@@ -37,12 +37,16 @@ BOOLS = [
     ("DESKTOP_SCROLL", "Enable on desktop & panels",
      "Allow autoscroll while the desktop or a panel/taskbar is focused. "
      "Off by default so a middle-drag doesn't hijack the desktop."),
+    ("FREE_CURSOR", "Free cursor during drag",
+     "Let the cursor move freely while drag-scrolling instead of anchoring "
+     "it. Note: once the cursor leaves the window you started in, the "
+     "scroll jumps to whatever is under it."),
 ]
 DEFAULTS = {
     "DEADZONE_PX": 15.0, "SPEED_MULT": 0.008, "SPEED_EXP": 2.2,
     "MAX_PX_PER_SEC": 30000.0, "PX_PER_NOTCH": 55.0, "MAX_DRAG_PX": 1200.0,
     "TICK_HZ": 90.0, "NATURAL": False, "TOGGLE_MODE": False,
-    "DESKTOP_SCROLL": False,
+    "DESKTOP_SCROLL": False, "FREE_CURSOR": False,
     "BLACKLIST": "freecad, orcaslicer, minecraft",
 }
 FLOAT_KEYS = [f[0] for f in FLOATS]

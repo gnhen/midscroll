@@ -57,6 +57,7 @@ TICK_HZ = 90.0            # scroll event rate (higher = smoother)
 NATURAL = False           # True inverts scroll direction
 TOGGLE_MODE = False       # True: click to start/stop instead of hold-and-drag
 DESKTOP_SCROLL = False    # True: also autoscroll over the desktop and panels
+FREE_CURSOR = False       # True lets the cursor move freely during a drag-scroll
 
 # Window-class substrings (case-insensitive) over which midscroll pauses
 # and the middle button behaves natively.
@@ -78,7 +79,7 @@ SOCK_PATH = SOCK_DIR + "/state.sock"
 
 FLOAT_KEYS = {"DEADZONE_PX", "TICK_HZ", "SPEED_MULT", "SPEED_EXP",
               "MAX_PX_PER_SEC", "PX_PER_NOTCH", "MAX_DRAG_PX"}
-BOOL_KEYS = {"NATURAL", "TOGGLE_MODE", "DESKTOP_SCROLL"}
+BOOL_KEYS = {"NATURAL", "TOGGLE_MODE", "DESKTOP_SCROLL", "FREE_CURSOR"}
 # Zero would divide by zero (TICK_HZ, PX_PER_NOTCH) or make the daemon
 # silently never scroll; only the dead zone may be zero.
 POSITIVE_KEYS = FLOAT_KEYS - {"DEADZONE_PX"}
@@ -602,7 +603,8 @@ async def pump(path, dev, states, tasks, focus, our_paths):
                     # hitting the original window instead of whatever the
                     # cursor would have drifted over.
                     _accumulate(st, ev)
-                    continue
+                    if not FREE_CURSOR:
+                        continue
             if ev.type == e.EV_SYN:
                 if ev.code == e.SYN_DROPPED:
                     _resync(ui, dev, held, st)
@@ -756,6 +758,10 @@ def parse_args(argv=None):
                    default=None, dest="desktop_scroll",
                    help="also autoscroll over the desktop and panels "
                         "(default: off, so they are left alone)")
+    p.add_argument("--free-cursor", action=argparse.BooleanOptionalAction,
+                   default=None,
+                   help="let the cursor move freely during drag-scroll "
+                        "instead of anchoring it")
     p.add_argument("--blacklist", metavar="APPS", default=None,
                    help="comma-separated window-class substrings over which "
                         "midscroll pauses (default: "
@@ -783,12 +789,14 @@ def cli():
         globals()["TOGGLE_MODE"] = args.toggle_mode
     if args.desktop_scroll is not None:
         globals()["DESKTOP_SCROLL"] = args.desktop_scroll
+    if args.free_cursor is not None:
+        globals()["FREE_CURSOR"] = args.free_cursor
     if args.blacklist is not None:
         globals()["BLACKLIST"] = parse_blacklist(args.blacklist)
-    log.debug("tunables: %s NATURAL=%s TOGGLE_MODE=%s DESKTOP_SCROLL=%s "
+    log.debug("tunables: %s NATURAL=%s TOGGLE_MODE=%s DESKTOP_SCROLL=%s FREE_CURSOR=%s "
               "BLACKLIST=%s",
               " ".join(f"{k}={globals()[k]:g}" for k in sorted(FLOAT_KEYS)),
-              NATURAL, TOGGLE_MODE, DESKTOP_SCROLL, BLACKLIST)
+              NATURAL, TOGGLE_MODE, DESKTOP_SCROLL, FREE_CURSOR, BLACKLIST)
     asyncio.run(main())
 
 

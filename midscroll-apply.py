@@ -32,7 +32,7 @@ FLOATS = {
     "MAX_DRAG_PX": True,
     "TICK_HZ": True,
 }
-BOOLS = ("NATURAL", "TOGGLE_MODE", "DESKTOP_SCROLL")
+BOOLS = ("NATURAL", "TOGGLE_MODE", "DESKTOP_SCROLL", "FREE_CURSOR")
 KEYS = tuple(FLOATS) + BOOLS + ("BLACKLIST",)
 
 # Defaults for any key the caller omits.
@@ -40,7 +40,7 @@ DEFAULTS = {
     "DEADZONE_PX": 15.0, "SPEED_MULT": 0.008, "SPEED_EXP": 2.2,
     "MAX_PX_PER_SEC": 30000.0, "PX_PER_NOTCH": 55.0, "MAX_DRAG_PX": 1200.0,
     "TICK_HZ": 90.0, "NATURAL": False, "TOGGLE_MODE": False,
-    "DESKTOP_SCROLL": False,
+    "DESKTOP_SCROLL": False, "FREE_CURSOR": False,
     "BLACKLIST": "freecad, orcaslicer, minecraft",
 }
 
@@ -67,6 +67,12 @@ TOGGLE_MODE = {TOGGLE_MODE}
 # Autoscroll over the desktop and panels too. Off by default, so a middle-drag
 # on the desktop/taskbar (plasmashell, xfdesktop, waybar, ...) is left alone.
 DESKTOP_SCROLL = {DESKTOP_SCROLL}
+
+# Let the cursor move freely during a drag-scroll. Off by default: the cursor
+# is anchored so the scroll stays on the window you started in. With this on
+# the cursor follows the hand, but once it leaves the original window the
+# scroll jumps to whatever is under it.
+FREE_CURSOR = {FREE_CURSOR}
 
 # Apps that use middle-drag themselves: while one of these is the focused
 # window, midscroll pauses. Comma-separated, case-insensitive window-class
@@ -133,6 +139,7 @@ def main(argv):
         NATURAL="true" if values["NATURAL"] else "false",
         TOGGLE_MODE="true" if values["TOGGLE_MODE"] else "false",
         DESKTOP_SCROLL="true" if values["DESKTOP_SCROLL"] else "false",
+        FREE_CURSOR="true" if values["FREE_CURSOR"] else "false",
         BLACKLIST=values["BLACKLIST"],
         **{k: values[k] for k in FLOATS},
     )
