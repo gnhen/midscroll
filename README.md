@@ -9,9 +9,11 @@ normal middle click (paste, open link in new tab). Diagonal drags scroll
 both axes, so it pans wide pages too.
 
 Prefer clicking to holding? Turn on **toggle mode** (in the settings GUI or
-`TOGGLE_MODE = true`) for the Windows-Explorer / Firefox style instead: one
+`TOGGLE_MODE = true`) for the Windows-Explorer / Firefox style instead: a
 middle click starts autoscroll, the cursor moves freely, and any click
-stops it.
+stops it. Set `TOGGLE_HOLD_MS` above zero to preserve quick middle-click
+actions such as opening and closing browser tabs; a longer press then
+starts autoscroll.
 
 It works in every app, on Wayland and X11, because it operates at the
 kernel input layer (evdev in, uinput out) instead of hooking any
@@ -106,6 +108,7 @@ PX_PER_NOTCH = 55         # px one wheel notch scrolls in your apps
 TICK_HZ = 90              # scroll event rate (higher = smoother)
 NATURAL = false           # true = inverted / touchscreen-style direction
 TOGGLE_MODE = false       # true = click to start/stop instead of hold-drag
+TOGGLE_HOLD_MS = 0        # >0 = quick clicks stay native; hold to autoscroll
 DESKTOP_SCROLL = false    # true = also autoscroll over the desktop and panels
 GHOST_CURSOR = true       # draw a cursor that follows your hand while dragging
 GHOST_SCALE = 1.0         # how far it travels per unit of mouse motion
@@ -133,8 +136,9 @@ midscroll --help          # full option list
 starts); `--blacklist "app1, app2"`, `--natural` / `--no-natural`,
 `--toggle-mode` / `--no-toggle-mode`, `--desktop` / `--no-desktop`
 (autoscroll over the desktop and panels) and `--ghost-cursor` /
-`--no-ghost-cursor` toggle the corresponding behaviors. `--list-devices`
-prints the device list and exits.
+`--no-ghost-cursor` toggle the corresponding behaviors.
+`--toggle-hold-ms N` preserves quick middle-clicks while toggle mode is on.
+`--list-devices` prints the device list and exits.
 
 ### Choosing which mice to use
 
