@@ -48,6 +48,7 @@ FLOATS = {
     "MAX_DRAG_PX": True,
     "TICK_HZ": True,
     "GHOST_SCALE": True,
+    "TOGGLE_HOLD_MS": False,
 }
 BOOLS = ("NATURAL", "TOGGLE_MODE", "DESKTOP_SCROLL", "GHOST_CURSOR")
 DEVICES = ("EXTRA_DEVICES", "IGNORE_DEVICES")
@@ -57,7 +58,8 @@ KEYS = tuple(FLOATS) + BOOLS + DEVICES + ("BLACKLIST",)
 DEFAULTS = {
     "DEADZONE_PX": 15.0, "SPEED_MULT": 0.008, "SPEED_EXP": 2.2,
     "MAX_PX_PER_SEC": 30000.0, "PX_PER_NOTCH": 55.0, "MAX_DRAG_PX": 1200.0,
-    "TICK_HZ": 90.0, "GHOST_SCALE": 1.0, "NATURAL": False,
+    "TICK_HZ": 90.0, "GHOST_SCALE": 1.0, "TOGGLE_HOLD_MS": 0.0,
+    "NATURAL": False,
     "TOGGLE_MODE": False, "DESKTOP_SCROLL": False, "GHOST_CURSOR": True,
     "BLACKLIST": "freecad, orcaslicer, minecraft",
     "EXTRA_DEVICES": "", "IGNORE_DEVICES": "",
@@ -81,7 +83,9 @@ NATURAL = {NATURAL}           # true = inverted / touchscreen-style direction
 
 # Click the middle button once to start autoscroll and again (or any click)
 # to stop, Windows-Explorer style, instead of holding it and dragging.
+# Set TOGGLE_HOLD_MS above zero to keep quick presses as native middle clicks.
 TOGGLE_MODE = {TOGGLE_MODE}
+TOGGLE_HOLD_MS = {TOGGLE_HOLD_MS:g}
 
 # Autoscroll over the desktop and panels too. Off by default, so a middle-drag
 # on the desktop/taskbar (plasmashell, xfdesktop, waybar, ...) is left alone.

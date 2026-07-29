@@ -7,9 +7,10 @@ scrolls. Release to stop. A quick middle click without dragging passes
 through as a normal middle click (paste / open link in new tab).
 
 With TOGGLE_MODE enabled the interaction is instead the Windows-Explorer /
-Firefox style: a single middle click starts autoscroll, the cursor then
-moves freely and the page scrolls by its distance from that origin, and any
-mouse click stops it. (In that mode the middle button no longer pastes.)
+Firefox style: a middle click starts autoscroll, the cursor then moves
+freely and the page scrolls by its distance from that origin, and any mouse
+click stops it. Set TOGGLE_HOLD_MS above zero to reserve quick presses for
+native middle clicks and start autoscroll only after a longer press.
 
 Works on Wayland and X11 in any application, because it sits at the kernel
 input layer: it grabs the real mouse and re-emits its events through a
@@ -65,6 +66,7 @@ MAX_DRAG_PX = 1200.0      # cap on effective drag distance (~screen height)
 TICK_HZ = 90.0            # scroll event rate (higher = smoother)
 NATURAL = False           # True inverts scroll direction
 TOGGLE_MODE = False       # True: click to start/stop instead of hold-and-drag
+TOGGLE_HOLD_MS = 0.0      # reserve shorter toggle-mode presses as native clicks
 DESKTOP_SCROLL = False    # True: also autoscroll over the desktop and panels
 GHOST_CURSOR = True       # True: helper draws a cursor at the dragged point
 GHOST_SCALE = 1.0         # ghost travel per unit of mouse motion
@@ -119,13 +121,14 @@ WRITE_SKIP_BYTES = 4096    # skip updates for a client this far behind
 WRITE_DROP_BYTES = 65536   # disconnect a client this far behind
 
 FLOAT_KEYS = {"DEADZONE_PX", "TICK_HZ", "SPEED_MULT", "SPEED_EXP",
-              "MAX_PX_PER_SEC", "PX_PER_NOTCH", "MAX_DRAG_PX", "GHOST_SCALE"}
+              "MAX_PX_PER_SEC", "PX_PER_NOTCH", "MAX_DRAG_PX", "GHOST_SCALE",
+              "TOGGLE_HOLD_MS"}
 BOOL_KEYS = {"NATURAL", "TOGGLE_MODE", "DESKTOP_SCROLL", "GHOST_CURSOR",
              "ALLOW_KEYBOARDS"}
 DEVICE_KEYS = {"EXTRA_DEVICES", "IGNORE_DEVICES"}
 # Zero would divide by zero (TICK_HZ, PX_PER_NOTCH) or make the daemon
-# silently never scroll; only the dead zone may be zero.
-POSITIVE_KEYS = FLOAT_KEYS - {"DEADZONE_PX"}
+# silently never scroll; only the dead zone and optional hold time may be zero.
+POSITIVE_KEYS = FLOAT_KEYS - {"DEADZONE_PX", "TOGGLE_HOLD_MS"}
 
 # A device spec written as vendor:product, both hex.
 VID_PID_RE = re.compile(r"^[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}$")
@@ -495,6 +498,7 @@ class State:
         self.toggled = False      # toggle-mode scrolling (no button held)
         self.passthrough = False  # middle held over a blacklisted app
         self.eat_release = None   # button whose release to swallow (toggle)
+        self.middle_down_at = None  # monotonic time of toggle-mode press
         self.dx = 0.0             # cursor offset from the origin
         self.dy = 0.0
         self.acc_v = 0.0          # fractional hi-res units carried over
@@ -709,9 +713,10 @@ def phys_roundtrips():
 def _toggle_key(ev, st, ui, focus):
     """Handle a mouse-button event in toggle mode.
 
-    Windows-Explorer style: a middle click starts autoscroll, then any
-    click stops it. Returns True if the event was consumed (swallowed),
-    False if it should be forwarded like a normal button press.
+    A quick middle click is replayed natively, preserving browser tab-close
+    and open-link behavior. Holding it for TOGGLE_HOLD_MS starts autoscroll;
+    any later click stops it. Returns True if the event was consumed
+    (swallowed), False if it should be forwarded like a normal button press.
     """
     code = ev.code
     # Finish swallowing the click that stopped autoscroll: eat its release
@@ -736,15 +741,31 @@ def _toggle_key(ev, st, ui, focus):
                 ui.syn()
             else:
                 st.pending = True
+                st.middle_down_at = time.monotonic()
         elif ev.value == 0:
             if st.passthrough:
                 st.passthrough = False
                 ui.write(e.EV_KEY, e.BTN_MIDDLE, 0)
                 ui.syn()
             elif st.pending:
+                pressed_at = (
+                    st.middle_down_at
+                    if st.middle_down_at is not None
+                    else time.monotonic()
+                )
+                held_ms = (time.monotonic() - pressed_at) * 1000.0
                 st.pending = False
-                st.begin_toggle()
-                log.debug("toggle scroll started")
+                st.middle_down_at = None
+                if held_ms < TOGGLE_HOLD_MS:
+                    st.reset()
+                    ui.write(e.EV_KEY, e.BTN_MIDDLE, 1)
+                    ui.syn()
+                    ui.write(e.EV_KEY, e.BTN_MIDDLE, 0)
+                    ui.syn()
+                    log.debug("quick middle click passed through")
+                else:
+                    st.begin_toggle()
+                    log.debug("toggle scroll started")
         return True
     return False  # other buttons while idle pass straight through
 
@@ -1080,6 +1101,8 @@ CLI_FLOATS = {
     "--tick-hz": ("TICK_HZ", "scroll event rate"),
     "--ghost-scale": ("GHOST_SCALE",
                       "ghost-cursor travel per unit of mouse motion"),
+    "--toggle-hold-ms": ("TOGGLE_HOLD_MS",
+                         "minimum middle-button hold to start toggle mode"),
 }
 
 

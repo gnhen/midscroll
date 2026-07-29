@@ -48,12 +48,13 @@ FLOATS = [
     ("MAX_DRAG_PX", "Max drag distance (px)", 100, 10000, 10, 0),
     ("TICK_HZ", "Event rate (Hz)", 10, 360, 5, 0),
     ("GHOST_SCALE", "Ghost cursor travel", 0.1, 5.0, 0.1, 1),
+    ("TOGGLE_HOLD_MS", "Toggle hold threshold (ms)", 0, 1000, 10, 0),
 ]
 # key, label, subtitle
 BOOLS = [
     ("TOGGLE_MODE", "Toggle mode",
-     "Click the middle button to start autoscroll and again to stop, "
-     "instead of holding and dragging."),
+     "Start autoscroll without holding throughout; any click stops it. "
+     "Set a hold threshold below to preserve quick middle-clicks."),
     ("NATURAL", "Natural scrolling", "Invert the scroll direction."),
     ("GHOST_CURSOR", "Ghost cursor",
      "While you drag, draw a cursor that follows your hand from the "
@@ -66,7 +67,8 @@ BOOLS = [
 DEFAULTS = {
     "DEADZONE_PX": 15.0, "SPEED_MULT": 0.008, "SPEED_EXP": 2.2,
     "MAX_PX_PER_SEC": 30000.0, "PX_PER_NOTCH": 55.0, "MAX_DRAG_PX": 1200.0,
-    "TICK_HZ": 90.0, "GHOST_SCALE": 1.0, "NATURAL": False,
+    "TICK_HZ": 90.0, "GHOST_SCALE": 1.0, "TOGGLE_HOLD_MS": 0.0,
+    "NATURAL": False,
     "TOGGLE_MODE": False, "DESKTOP_SCROLL": False, "GHOST_CURSOR": True,
     "BLACKLIST": "freecad, orcaslicer, minecraft",
     "EXTRA_DEVICES": "", "IGNORE_DEVICES": "",
