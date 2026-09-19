@@ -1019,16 +1019,23 @@ async def main():
             # every input device caused visible input hiccups); a path is
             # forgotten when it disappears, so replugging re-probes it. Our
             # own mirror nodes are skipped so we never grab what we emit.
+            #
+            # A mouse we are pumping is tracked by `tasks`, not `seen`, so a
+            # node is probed again as soon as its pump ends. Otherwise a
+            # device that comes back on the same event node within one poll
+            # - a fast replug - stays in `seen` forever, and the mouse is
+            # never grabbed again until the daemon is restarted.
             paths = set(list_devices())
             seen &= paths
             our_paths &= paths
-            for path in sorted(paths - seen - our_paths):
-                seen.add(path)
+            for path in sorted(paths - seen - tasks.keys() - our_paths):
                 try:
                     dev = InputDevice(path)
                 except OSError:
+                    seen.add(path)  # don't reopen it on every poll
                     continue
                 if not want_device(dev, path, our_paths):
+                    seen.add(path)
                     dev.close()
                     continue
                 if len(tasks) >= MAX_GRABBED:
@@ -1037,6 +1044,7 @@ async def main():
                     # device to have it reconsidered.
                     log.warning("already grabbing %d devices; skipping %s",
                                 MAX_GRABBED, path)
+                    seen.add(path)
                     dev.close()
                     continue
                 tasks[path] = asyncio.create_task(
