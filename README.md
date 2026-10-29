@@ -69,6 +69,61 @@ makepkg -si
 
 kdotool (for the scroll badge) is in the AUR.
 
+### NixOS
+
+#### Installation with nix flake
+
+add input in your your flake.nix and install it as a module
+
+```nix
+  inputs = {
+    # ...
+
+    midscroll = {
+      url = "github:gnhen/midscroll";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  # add midscroll input as a module 
+  # (this goes inside of your host system declaration)
+  modules = [
+    # ...
+    inputs.midscroll.nixosModules.default
+
+    # you can directly install from here
+    {
+      # or take this into host configuration.nix
+      services.midscroll = {
+        enable = true;
+
+        # it's also possible to set configuration declaratively
+        # here is the exhaustive example(you can exclude this and use defaults though)
+        settings = {
+          DEADZONE_PX = 15;
+          SPEED_MULT = 0.008;
+          SPEED_EXP = 2.2;
+          MAX_PX_PER_SEC = 30000;
+          PX_PER_NOTCH = 55;
+          MAX_DRAG_PX = 1200;
+          TICK_HZ = 90;
+  
+          NATURAL = false;
+          TOGGLE_MODE = false;
+          DESKTOP_SCROLL = false;
+          GHOST_CURSOR = true;
+          GHOST_SCALE = 1.0;
+  
+          BLACKLIST = [ "freecad" "orcaslicer" "minecraft" ];
+  
+          EXTRA_DEVICES = [ ];
+          IGNORE_DEVICES = [ ];
+        };
+      };
+    }
+  ];
+```
+
 ### Manual (any systemd distro)
 
 `sudo ./install.sh` copies the files and enables the services directly;
