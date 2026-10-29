@@ -118,6 +118,14 @@ fi
 * Tue Aug 26 2026 midscroll - 1.15-1
 - SNAP_CURSOR_ON_RELEASE: snap the anchored cursor to the ghost position
   once a drag-scroll ends, matching Windows autoscroll behavior
+  - Enabled by default, toggleable in the settings GUI, /etc/midscroll.conf,
+    or via --snap-cursor / --no-snap-cursor
+- Sub-deadzone motion no longer discarded: small drags within DEADZONE_PX
+  now replay their accumulated offset on release instead of silently
+  vanishing
+- SNAP_CURSOR_ON_RELEASE help text now reflects "default: on"
+- Snap uses GHOST_SCALE so the cursor always lands exactly where the
+  ghost cursor was drawn
 
 * Tue Jul 28 2026 midscroll - 1.14-1
 - Ship AppStream metadata, so the settings app has a proper listing in

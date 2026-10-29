@@ -790,7 +790,10 @@ async def pump(path, dev, states, tasks, focus, our_paths):
                         if SNAP_CURSOR_ON_RELEASE:
                             # Catch the anchored cursor up to wherever the real
                             # mouse ended up, like Windows does.
-                            sx, sy = int(dx), int(dy)
+                            # Keep this identical to the offset sent to the
+                            # overlay, including GHOST_SCALE.
+                            sx = int(dx * GHOST_SCALE)
+                            sy = int(dy * GHOST_SCALE)
                             if sx or sy:
                                 log.info("snap cursor: dx=%g dy=%g", sx, sy)
                                 _snap_cursor(ui, sx, sy)

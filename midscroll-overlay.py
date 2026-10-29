@@ -334,16 +334,9 @@ if WAYLAND:
             self.badge.add_css_class("badge")
             self.badge.set_size_request(BADGE_PX, BADGE_PX)
             self.badge.append(icon)
-            cursor = load_theme_cursor()
             self.ghost = Gtk.DrawingArea()
-            if cursor is None:
-                self.hotspot = (1, 1)  # the fallback arrow's tip
-                self.ghost.set_size_request(GHOST_W, GHOST_H)
-            else:
-                self.hotspot = (cursor[1], cursor[2])
-                self.ghost.set_size_request(cursor[0].get_width(),
-                                            cursor[0].get_height())
-            self.ghost.set_draw_func(make_ghost_drawer(cursor))
+            self.cursor = None
+            self.cursor_signature = None
             self.fixed = Gtk.Fixed()
             self.fixed.put(self.badge, 0, 0)
             self.fixed.put(self.ghost, 0, 0)
@@ -368,6 +361,27 @@ if WAYLAND:
             self.geo = None     # geometry of the monitor we are drawn on
             self.last_line = time.monotonic()
             GLib.timeout_add_seconds(1, self._check_stale)
+            self._refresh_cursor()
+
+        def _cursor_signature(self):
+            return (cursor_theme_name(), cursor_size())
+
+        def _refresh_cursor(self):
+            """Reload the ghost when the compositor's cursor settings change."""
+            signature = self._cursor_signature()
+            if signature == self.cursor_signature:
+                return
+            cursor = load_theme_cursor()
+            self.cursor_signature = signature
+            self.cursor = cursor
+            if cursor is None:
+                self.hotspot = (1, 1)
+                self.ghost.set_size_request(GHOST_W, GHOST_H)
+            else:
+                self.hotspot = (cursor[1], cursor[2])
+                self.ghost.set_size_request(cursor[0].get_width(),
+                                            cursor[0].get_height())
+            self.ghost.set_draw_func(make_ghost_drawer(cursor))
 
         def _make_click_through(self, *_):
             surface = self.win.get_surface()
@@ -384,6 +398,7 @@ if WAYLAND:
             """
             if self.active:
                 self._make_click_through()
+                self._refresh_cursor()
                 if time.monotonic() - self.last_line > STALE_SEC:
                     log.warning("no state from midscroll for %.0fs; hiding",
                                 STALE_SEC)
@@ -404,6 +419,7 @@ if WAYLAND:
                 self.anchor = None
                 self.offset = (0, 0)
                 return
+            self._refresh_cursor()
             # The pointer is pinned for the whole drag, so one query does.
             try:
                 proc = Gio.Subprocess.new(
@@ -559,9 +575,10 @@ def main():
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s: %(message)s")
     if not WAYLAND:
-        # X11: the layer-shell badge can't work; still report focus so the
-        # daemon's app blacklist functions.
-        log.info("X11 session: focus reporting only, no badge")
+        # X11 has no supported click-through overlay implementation here.
+        # Keep focus reporting, but do not claim that ghost mode is active.
+        log.info("X11 session: ghost cursor and badge unavailable; "
+                 "focus reporting only")
         watch_socket(None)
         return
 
