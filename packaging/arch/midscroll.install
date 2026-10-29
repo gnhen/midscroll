@@ -4,6 +4,8 @@ post_install() {
     echo "Enable the scroll badge overlay (KDE; needs kdotool from the AUR):"
     echo "  sudo systemctl --global enable midscroll-overlay"
     echo "  systemctl --user start midscroll-overlay"
+    echo "GNOME: log out and back in, then turn on the Shell extension:"
+    echo "  gnome-extensions enable midscroll-indicator@midscroll"
 }
 
 pre_remove() {

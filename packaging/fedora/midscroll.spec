@@ -19,6 +19,9 @@ Source10:       io.github.gnhen.midscroll.Settings.desktop
 Source11:       io.github.gnhen.midscroll.policy
 Source12:       SECURITY.md
 Source13:       io.github.gnhen.midscroll.Settings.metainfo.xml
+Source14:       extension.js
+Source15:       metadata.json
+Source16:       stylesheet.css
 
 Requires:       python3
 Requires:       python3-evdev
@@ -70,6 +73,11 @@ install -Dm644 %{SOURCE11} \
 # Software-center metadata, so the settings app shows up in Discover/GNOME Software
 install -Dm644 %{SOURCE13} \
     %{buildroot}%{_metainfodir}/io.github.gnhen.midscroll.Settings.metainfo.xml
+# GNOME Shell extension: does the scrolling on GNOME (see README.md)
+for f in %{SOURCE14} %{SOURCE15} %{SOURCE16}; do
+    install -Dm644 "$f" \
+        %{buildroot}%{_datadir}/gnome-shell/extensions/midscroll-indicator@midscroll/$(basename "$f")
+done
 install -d %{buildroot}%{_userpresetdir}
 echo "enable midscroll-overlay.service" \
     > %{buildroot}%{_userpresetdir}/90-midscroll.preset
@@ -112,6 +120,7 @@ fi
 %{_datadir}/applications/io.github.gnhen.midscroll.Settings.desktop
 %{_datadir}/polkit-1/actions/io.github.gnhen.midscroll.policy
 %{_metainfodir}/io.github.gnhen.midscroll.Settings.metainfo.xml
+%{_datadir}/gnome-shell/extensions/midscroll-indicator@midscroll/
 %config(noreplace) %{_sysconfdir}/midscroll.conf
 
 %changelog

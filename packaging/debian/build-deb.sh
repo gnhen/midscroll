@@ -32,6 +32,10 @@ install -Dm644 "$repo/icons/move-vertical.svg" \
     "$stage/usr/share/midscroll/move-vertical.svg"
 install -Dm644 "$repo/icons/move-vertical.svg" \
     "$stage/usr/share/icons/hicolor/scalable/apps/midscroll.svg"
+for f in extension.js metadata.json stylesheet.css; do
+    install -Dm644 "$repo/gnome-extension/$f" \
+        "$stage/usr/share/gnome-shell/extensions/midscroll-indicator@midscroll/$f"
+done
 install -Dm644 "$repo/midscroll.conf" "$stage/etc/midscroll.conf"
 install -Dm644 "$repo/README.md" "$stage/usr/share/doc/midscroll/README.md"
 install -Dm644 "$repo/SECURITY.md" "$stage/usr/share/doc/midscroll/SECURITY.md"
@@ -44,16 +48,18 @@ Version: $version
 Section: utils
 Priority: optional
 Architecture: all
-Depends: python3, python3-evdev, python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, libgtk4-layer-shell0, gir1.2-gtk4layershell-1.0, librsvg2-common, polkitd | policykit-1
-Recommends: kdotool, x11-utils
+Depends: python3, python3-evdev, python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, librsvg2-common, polkitd | policykit-1
+Recommends: libgtk4-layer-shell0, gir1.2-gtk4layershell-1.0, kdotool, x11-utils
 Maintainer: $maintainer
 Description: Windows-style middle-button drag autoscroll
  Hold the middle mouse button and drag to scroll, with speed proportional
  to drag distance, like Windows 10/11. Works on Wayland and X11 in every
  application by operating at the kernel input layer (evdev/uinput).
  .
- Includes a session overlay that shows a scroll badge at the anchored
- cursor while a drag-scroll is active (KDE Plasma; needs kdotool).
+ Includes a GNOME Shell extension that does the scrolling on GNOME with a
+ free-moving cursor, and a session overlay that shows a scroll badge at the
+ anchored cursor while a drag-scroll is active (KDE Plasma; needs kdotool
+ and gtk4-layer-shell).
 EOF
 
 printf '/etc/midscroll.conf\n' > "$stage/DEBIAN/conffiles"
@@ -65,6 +71,10 @@ if [ "$1" = "configure" ]; then
     systemctl daemon-reload || true
     systemctl enable --now midscroll.service || true
     systemctl --global enable midscroll-overlay.service || true
+    if [ -z "$2" ]; then
+        echo "GNOME: log out and back in, then turn on the Shell extension:"
+        echo "  gnome-extensions enable midscroll-indicator@midscroll"
+    fi
 fi
 EOF
 

@@ -1,0 +1,21 @@
+.midscroll-anchor {
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  background-color: rgba(30, 30, 30, 0.80);
+  border: 2px solid rgba(255, 255, 255, 0.90);
+}
+.midscroll-anchor StIcon {
+  color: white;
+}
+.midscroll-bar {
+  border-radius: 3px;
+}
+.midscroll-label {
+  font-size: 12pt;
+  font-weight: bold;
+  color: white;
+  background-color: rgba(30, 30, 30, 0.85);
+  border-radius: 8px;
+  padding: 3px 9px;
+}

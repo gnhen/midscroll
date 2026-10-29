@@ -50,7 +50,7 @@ FLOATS = {
     "GHOST_SCALE": True,
 }
 BOOLS = ("NATURAL", "TOGGLE_MODE", "DESKTOP_SCROLL", "GHOST_CURSOR",
-         "SNAP_CURSOR_ON_RELEASE")
+         "SNAP_CURSOR_ON_RELEASE", "FREE_CURSOR")
 DEVICES = ("EXTRA_DEVICES", "IGNORE_DEVICES")
 KEYS = tuple(FLOATS) + BOOLS + DEVICES + ("BLACKLIST",)
 
@@ -60,7 +60,7 @@ DEFAULTS = {
     "MAX_PX_PER_SEC": 30000.0, "PX_PER_NOTCH": 55.0, "MAX_DRAG_PX": 1200.0,
     "TICK_HZ": 90.0, "GHOST_SCALE": 1.0, "NATURAL": False,
     "TOGGLE_MODE": False, "DESKTOP_SCROLL": False, "GHOST_CURSOR": True,
-    "SNAP_CURSOR_ON_RELEASE": True,
+    "SNAP_CURSOR_ON_RELEASE": True, "FREE_CURSOR": False,
     "BLACKLIST": "freecad, orcaslicer, minecraft",
     "EXTRA_DEVICES": "", "IGNORE_DEVICES": "",
 }
@@ -89,9 +89,13 @@ TOGGLE_MODE = {TOGGLE_MODE}
 # on the desktop/taskbar (plasmashell, xfdesktop, waybar, ...) is left alone.
 DESKTOP_SCROLL = {DESKTOP_SCROLL}
 
-# While you drag, the real pointer stays anchored so the scroll can't leak to
-# another window, and the session helper draws a cursor that follows your hand.
-# GHOST_SCALE is how far that drawn cursor travels per unit of mouse motion.
+# Windows-style: the pointer follows your hand while you drag, and the scroll
+# stays on the window the drag started in. False holds the pointer still.
+FREE_CURSOR = {FREE_CURSOR}
+
+# Only with FREE_CURSOR = false: the session helper draws a cursor that
+# follows your hand (KDE Plasma). GHOST_SCALE is how far that drawn cursor
+# travels per unit of mouse motion.
 GHOST_CURSOR = {GHOST_CURSOR}
 GHOST_SCALE = {GHOST_SCALE:g}
 SNAP_CURSOR_ON_RELEASE = {SNAP_CURSOR_ON_RELEASE}    # True: snap the anchored
@@ -226,6 +230,7 @@ def main(argv):
         DESKTOP_SCROLL="true" if values["DESKTOP_SCROLL"] else "false",
         GHOST_CURSOR="true" if values["GHOST_CURSOR"] else "false",
         SNAP_CURSOR_ON_RELEASE="true" if values["SNAP_CURSOR_ON_RELEASE"] else "false",
+        FREE_CURSOR="true" if values["FREE_CURSOR"] else "false",
         BLACKLIST=values["BLACKLIST"],
         EXTRA_DEVICES=values["EXTRA_DEVICES"],
         IGNORE_DEVICES=values["IGNORE_DEVICES"],

@@ -23,6 +23,11 @@ install -Dm644 systemd/midscroll-overlay.service \
 install -Dm644 icons/move-vertical.svg /usr/share/midscroll/move-vertical.svg
 install -Dm644 icons/move-vertical.svg \
     /usr/share/icons/hicolor/scalable/apps/midscroll.svg
+# GNOME Shell extension: does the scrolling on GNOME (see README.md)
+ext=midscroll-indicator@midscroll
+for f in extension.js metadata.json stylesheet.css; do
+    install -Dm644 "gnome-extension/$f" "/usr/share/gnome-shell/extensions/$ext/$f"
+done
 # Don't clobber an existing tuned config
 [ -f /etc/midscroll.conf ] || install -Dm644 midscroll.conf /etc/midscroll.conf
 
@@ -37,8 +42,27 @@ if [ -n "${SUDO_USER:-}" ]; then
         systemctl --user daemon-reload || :
     sudo -u "$SUDO_USER" XDG_RUNTIME_DIR="/run/user/$uid" \
         systemctl --user start midscroll-overlay.service || :
+    # Turn the GNOME extension on for this user. GNOME on Wayland only
+    # notices a newly installed extension at the next login, so this edits
+    # the enabled list directly instead of calling gnome-extensions enable.
+    if command -v gnome-shell >/dev/null; then
+        sudo -u "$SUDO_USER" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            python3 - "$ext" <<'PY' || :
+import sys
+from gi.repository import Gio
+s = Gio.Settings.new("org.gnome.shell")
+on = s.get_strv("enabled-extensions")
+if sys.argv[1] not in on:
+    s.set_strv("enabled-extensions", on + [sys.argv[1]])
+    Gio.Settings.sync()
+PY
+    fi
 fi
 
 echo
 echo "midscroll is installed, running, and enabled on startup."
+if command -v gnome-shell >/dev/null; then
+    echo "GNOME: log out and back in once so the midscroll Shell extension loads."
+fi
 echo "Tune the feel in /etc/midscroll.conf, then: sudo systemctl restart midscroll"

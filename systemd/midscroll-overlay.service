@@ -4,6 +4,10 @@ After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
+# Skip quietly where gtk4-layer-shell isn't packaged (Ubuntu 24.04): the
+# helper can't start without it, and GNOME doesn't need it (the Shell
+# extension does that job there).
+ExecCondition=/usr/bin/python3 -c "import gi; gi.require_version('Gtk4LayerShell', '1.0')"
 ExecStart=/usr/bin/midscroll-overlay
 Restart=on-failure
 RestartSec=2

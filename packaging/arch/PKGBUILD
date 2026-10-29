@@ -30,6 +30,10 @@ package() {
         "$pkgdir/usr/share/midscroll/move-vertical.svg"
     install -Dm644 icons/move-vertical.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/midscroll.svg"
+    for f in extension.js metadata.json stylesheet.css; do
+        install -Dm644 "gnome-extension/$f" \
+            "$pkgdir/usr/share/gnome-shell/extensions/midscroll-indicator@midscroll/$f"
+    done
     install -Dm644 midscroll.conf "$pkgdir/etc/midscroll.conf"
     install -Dm644 README.md "$pkgdir/usr/share/doc/midscroll/README.md"
     install -Dm644 SECURITY.md "$pkgdir/usr/share/doc/midscroll/SECURITY.md"

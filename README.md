@@ -31,6 +31,14 @@ Details:
   your cursor theme. The ghost is only drawn: it can't click, hover or
   focus anything, which is what lets the scroll stay put while you see
   where you are (KDE Plasma Wayland; see notes below).
+- On GNOME, turn on **Cursor moves while scrolling** in the settings
+  (`FREE_CURSOR = true`) for the Windows feel: the pointer follows your
+  hand, and the midscroll Shell extension (`gnome-extension/`) does the
+  scrolling as smooth pixel scroll from inside the compositor, so it
+  starts at once and pans diagonally without stutter, while pointer
+  barriers keep the pointer inside the window you started in. (The
+  daemon's own hi-res wheel events go through libinput, which holds back
+  the first half notch of every scroll and every direction change.)
 - Apps that use middle-drag themselves (FreeCAD, OrcaSlicer and Minecraft
   by default) are blacklisted by window class: while one of them is
   focused, midscroll pauses itself and the middle button behaves natively.
@@ -55,10 +63,11 @@ sudo dnf install ./dist/midscroll-*.noarch.rpm
 sudo apt install ./dist/midscroll_*_all.deb
 ```
 
-Needs a release with gtk4-layer-shell packaged (Debian 13 "trixie",
-Ubuntu 24.04+). kdotool isn't in the Debian/Ubuntu repos, so the scroll
-badge needs it [built from source](https://github.com/jinliu/kdotool);
-everything else works without it.
+Installs on Debian 13 "trixie" and Ubuntu 24.04 or newer. The KDE scroll
+badge also needs gtk4-layer-shell (Debian 13, Ubuntu 24.10+) and kdotool,
+which isn't in the Debian/Ubuntu repos, so build it
+[from source](https://github.com/jinliu/kdotool); everything else works
+without them, and GNOME needs neither.
 
 ### Arch
 
@@ -79,7 +88,23 @@ gtk4-layer-shell, librsvg and kdotool.
 All methods install two services: `midscroll` (system, the scroll daemon)
 and `midscroll-overlay` (per-user, the badge). Package installs enable
 both; the overlay starts at your next login, or immediately with
-`systemctl --user start midscroll-overlay`.
+`systemctl --user start midscroll-overlay`. Where gtk4-layer-shell isn't
+installed the overlay skips itself.
+
+### GNOME
+
+Every install method also installs the GNOME Shell extension
+(`midscroll-indicator@midscroll`, GNOME 45-50). `install.sh` turns it on
+for you; then log out and back in once. After a package install, log out
+and back in, then turn it on:
+
+```
+gnome-extensions enable midscroll-indicator@midscroll
+```
+
+(or switch on **midscroll indicator** in the Extensions app), and set
+`FREE_CURSOR = true`. `journalctl -u midscroll -b | grep "does the scrolling"`
+shows the extension connecting.
 
 ## Settings GUI
 
@@ -107,7 +132,8 @@ TICK_HZ = 90              # scroll event rate (higher = smoother)
 NATURAL = false           # true = inverted / touchscreen-style direction
 TOGGLE_MODE = false       # true = click to start/stop instead of hold-drag
 DESKTOP_SCROLL = false    # true = also autoscroll over the desktop and panels
-GHOST_CURSOR = true       # draw a cursor that follows your hand while dragging
+FREE_CURSOR = false       # true = pointer follows your hand (GNOME: see above)
+GHOST_CURSOR = true       # anchored only: draw a cursor that follows your hand
 GHOST_SCALE = 1.0         # how far it travels per unit of mouse motion
 SNAP_CURSOR_ON_RELEASE = true   # snap the anchored cursor to the ghost
                                 # position once the drag ends
@@ -134,7 +160,8 @@ midscroll --help          # full option list
 `--debug` turns on debug logging (device probing, focus changes, scroll
 starts); `--blacklist "app1, app2"`, `--natural` / `--no-natural`,
 `--toggle-mode` / `--no-toggle-mode`, `--desktop` / `--no-desktop`
-(autoscroll over the desktop and panels), `--ghost-cursor` /
+(autoscroll over the desktop and panels), `--free-cursor` /
+`--no-free-cursor`, `--ghost-cursor` /
 `--no-ghost-cursor` and `--snap-cursor` / `--no-snap-cursor`
 toggle the corresponding behaviors. `--list-devices`
 prints the device list and exits.

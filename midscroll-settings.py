@@ -23,7 +23,7 @@ import sys
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Gio, GLib, GObject, Gtk  # noqa: E402
 
 CONFIG_PATH = "/etc/midscroll.conf"
 PROC_DEVICES = "/proc/bus/input/devices"
@@ -51,18 +51,21 @@ FLOATS = [
 ]
 # key, label, subtitle
 BOOLS = [
+    ("FREE_CURSOR", "Cursor moves while scrolling",
+     "Windows-style: the pointer follows your hand while you drag, and the "
+     "scroll stays on the window you started in (on GNOME the pointer is "
+     "kept inside that window). Off holds the pointer still instead."),
     ("TOGGLE_MODE", "Toggle mode",
      "Click the middle button to start autoscroll and again to stop, "
      "instead of holding and dragging."),
     ("NATURAL", "Natural scrolling", "Invert the scroll direction."),
     ("GHOST_CURSOR", "Ghost cursor",
-     "While you drag, draw a cursor that follows your hand from the "
-     "anchor point. It only draws - the real pointer stays put so the "
-     "scroll can't leak into another window."),
+     "Only when the cursor is held still: draw a cursor that follows your "
+     "hand from the anchor point (KDE Plasma only). It only draws - the "
+     "real pointer stays put."),
     ("SNAP_CURSOR_ON_RELEASE", "Snap cursor on release",
-     "When a drag-scroll ends, move the anchored cursor to where your "
-     "hand is (the ghost cursor position), like Windows autoscroll does. "
-     "Off by default."),
+     "Only when the cursor is held still: when a drag-scroll ends, move "
+     "the cursor to where your hand is."),
     ("DESKTOP_SCROLL", "Enable on desktop & panels",
      "Allow autoscroll while the desktop or a panel/taskbar is focused. "
      "Off by default so a middle-drag doesn't hijack the desktop."),
@@ -72,7 +75,7 @@ DEFAULTS = {
     "MAX_PX_PER_SEC": 30000.0, "PX_PER_NOTCH": 55.0, "MAX_DRAG_PX": 1200.0,
     "TICK_HZ": 90.0, "GHOST_SCALE": 1.0, "NATURAL": False,
     "TOGGLE_MODE": False, "DESKTOP_SCROLL": False, "GHOST_CURSOR": True,
-    "SNAP_CURSOR_ON_RELEASE": True,
+    "SNAP_CURSOR_ON_RELEASE": True, "FREE_CURSOR": False,
     "BLACKLIST": "freecad, orcaslicer, minecraft",
     "EXTRA_DEVICES": "", "IGNORE_DEVICES": "",
     # Not settable here: only a root edit of the config turns it on.
@@ -263,6 +266,7 @@ class Window(Gtk.ApplicationWindow):
         self.set_default_size(520, -1)
         self.floats = {}
         self.bools = {}
+        self.rows = {}
         self.device_rows = []   # (record, spec, auto-detected, switch)
         self.extra = []         # EXTRA_DEVICES as loaded
         self.ignore = []        # IGNORE_DEVICES as loaded
@@ -304,6 +308,13 @@ class Window(Gtk.ApplicationWindow):
         box.append(self._heading("Speed and feel"))
         for key, label, lo, hi, step, digits in FLOATS:
             box.append(self._float_row(key, label, lo, hi, step, digits))
+
+        # The ghost settings only mean something for a held-still cursor.
+        for key in ("GHOST_CURSOR", "SNAP_CURSOR_ON_RELEASE", "GHOST_SCALE"):
+            self.bools["FREE_CURSOR"].bind_property(
+                "active", self.rows[key], "sensitive",
+                GObject.BindingFlags.SYNC_CREATE
+                | GObject.BindingFlags.INVERT_BOOLEAN)
 
         box.append(self._heading("App blacklist"))
         hint = Gtk.Label(
@@ -366,6 +377,7 @@ class Window(Gtk.ApplicationWindow):
         spin.set_valign(Gtk.Align.CENTER)
         self.floats[key] = spin
         row.append(spin)
+        self.rows[key] = row
         return row
 
     def _devices_section(self):
@@ -517,6 +529,7 @@ class Window(Gtk.ApplicationWindow):
         switch = Gtk.Switch(valign=Gtk.Align.CENTER)
         self.bools[key] = switch
         row.append(switch)
+        self.rows[key] = row
         return row
 
     # ---- data ----
