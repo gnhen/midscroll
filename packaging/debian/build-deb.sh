@@ -44,8 +44,8 @@ Version: $version
 Section: utils
 Priority: optional
 Architecture: all
-Depends: python3, python3-evdev, python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, libgtk4-layer-shell0, gir1.2-gtk4layershell-1.0, librsvg2-common, polkitd | policykit-1
-Recommends: kdotool, x11-utils
+Depends: python3, python3-evdev, python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, librsvg2-common, polkitd | policykit-1
+Recommends: gir1.2-gtk-3.0, libgtk4-layer-shell0, gir1.2-gtk4layershell-1.0, kdotool, x11-utils
 Maintainer: $maintainer
 Description: Windows-style middle-button drag autoscroll
  Hold the middle mouse button and drag to scroll, with speed proportional
@@ -53,7 +53,8 @@ Description: Windows-style middle-button drag autoscroll
  application by operating at the kernel input layer (evdev/uinput).
  .
  Includes a session overlay that shows a scroll badge at the anchored
- cursor while a drag-scroll is active (KDE Plasma; needs kdotool).
+ cursor while a drag-scroll is active (KDE Plasma Wayland with kdotool;
+ badge only on X11 desktops).
 EOF
 
 printf '/etc/midscroll.conf\n' > "$stage/DEBIAN/conffiles"

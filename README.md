@@ -10,8 +10,10 @@ both axes, so it pans wide pages too.
 
 Prefer clicking to holding? Turn on **toggle mode** (in the settings GUI or
 `TOGGLE_MODE = true`) for the Windows-Explorer / Firefox style instead: one
-middle click starts autoscroll, the cursor moves freely, and any click
-stops it.
+middle click starts autoscroll and any click stops it. As with hold-drag,
+the real pointer stays parked where you clicked (with the ghost cursor
+following your hand), so moving over a browser's tab strip or a panel
+can't redirect the scroll there.
 
 It works in every app, on Wayland and X11, because it operates at the
 kernel input layer (evdev in, uinput out) instead of hooking any
@@ -30,7 +32,9 @@ Details:
   follows your hand from there - a copy of your own pointer, read from
   your cursor theme. The ghost is only drawn: it can't click, hover or
   focus anything, which is what lets the scroll stay put while you see
-  where you are (KDE Plasma Wayland; see notes below).
+  where you are (KDE Plasma Wayland; see notes below). On X11 desktops
+  (GNOME on Xorg, Cinnamon, XFCE, ...) the same badge and ghost are drawn
+  with GTK 3, and the parked pointer is hidden while scrolling.
 - Apps that use middle-drag themselves (FreeCAD, OrcaSlicer and Minecraft
   by default) are blacklisted by window class: while one of them is
   focused, midscroll pauses itself and the middle button behaves natively.
@@ -38,6 +42,23 @@ Details:
   (plasmashell, xfdesktop, waybar, GNOME Shell, ...) is focused midscroll
   pauses, so a middle-drag can't hijack the desktop. Turn on **Enable on
   desktop & panels** (`DESKTOP_SCROLL = true`) if you want it there too.
+
+### Browsers
+
+midscroll works at the input layer, so it can't see what is under the
+pointer: it doesn't know a link from a tab from a scrollable page. Browsers
+do, and Firefox and the Chromium family have their own Windows-style
+autoscroll that keeps middle-click on links (open in new tab) and tabs
+(close), and only starts over something scrollable. For the best result,
+turn that on and blacklist the browser in midscroll so it passes the
+middle button straight through:
+
+- **Firefox:** Settings → General → Browsing → *Use autoscrolling*.
+- **Brave / Chrome / Chromium / Vivaldi:** enable
+  `brave://flags/#middle-button-autoscroll` (or `chrome://flags/...`), or
+  launch with `--enable-blink-features=MiddleClickAutoscroll`.
+- Then add the browser to `BLACKLIST` (e.g. `brave`, `firefox`, `chrome`)
+  in the settings GUI or `/etc/midscroll.conf`.
 
 ## Install
 
@@ -55,10 +76,18 @@ sudo dnf install ./dist/midscroll-*.noarch.rpm
 sudo apt install ./dist/midscroll_*_all.deb
 ```
 
-Needs a release with gtk4-layer-shell packaged (Debian 13 "trixie",
-Ubuntu 24.04+). kdotool isn't in the Debian/Ubuntu repos, so the scroll
-badge needs it [built from source](https://github.com/jinliu/kdotool);
-everything else works without it.
+Works on Ubuntu 24.04+ (and derivatives such as Zorin OS 18, Linux Mint
+22, Pop!_OS 24.04) and Debian 13. gtk4-layer-shell is only *recommended*:
+it draws the scroll badge and ghost cursor on KDE Plasma Wayland, and
+isn't packaged before Debian 13 "trixie" / Ubuntu 25.04. Without it,
+scrolling, the blacklist and the settings GUI work as normal and the badge
+is skipped. kdotool isn't in the Debian/Ubuntu repos either, so the badge
+also needs it [built from source](https://github.com/jinliu/kdotool).
+
+On X11 sessions (GNOME on Xorg, as on Zorin OS, Cinnamon, XFCE, ...) the
+badge and ghost cursor are drawn with GTK 3 instead. On Wayland
+desktops other than KDE (e.g. GNOME on Wayland) nothing is drawn, but
+autoscroll itself works everywhere.
 
 ### Arch
 
@@ -73,8 +102,10 @@ kdotool (for the scroll badge) is in the AUR.
 
 `sudo ./install.sh` copies the files and enables the services directly;
 `sudo ./uninstall.sh` reverses it. You'll need the dependencies installed:
-python3-evdev, and for the badge overlay PyGObject, GTK 4,
-gtk4-layer-shell, librsvg and kdotool.
+python3-evdev, plus xprop (x11-utils) on X11 for the app blacklist; for
+the badge overlay PyGObject and librsvg, plus GTK 4, gtk4-layer-shell and
+kdotool on KDE Plasma Wayland, or GTK 3 on X11. On Debian/Ubuntu-based distros
+the minimum is `sudo apt install python3-evdev x11-utils`.
 
 All methods install two services: `midscroll` (system, the scroll daemon)
 and `midscroll-overlay` (per-user, the badge). Package installs enable
