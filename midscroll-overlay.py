@@ -6,8 +6,8 @@ Two jobs, both over the daemon's socket at /run/midscroll/state.sock:
 1. While a drag-scroll is active, draws the autoscroll cursor: a badge
    with a vertical-arrows icon locked to the point where midscroll has
    anchored the pointer, and a ghost cursor that follows your hand from
-   there, the way Windows autoscroll looks (Wayland only; both are drawn
-   with wlr-layer-shell).
+   there, the way Windows autoscroll looks (drawn
+   with wlr-layer-shell on Wayland, GTK 3 popups on X11).
 2. Reports the focused window's class back to the daemon so it can pause
    itself over blacklisted apps (CAD, slicers, games that use middle-drag
    natively). Polled once a second via kdotool on Wayland KDE, or xprop
@@ -24,11 +24,12 @@ the daemon goes quiet for STALE_SEC or the socket drops.
 The anchor position is read once per drag via kdotool (KWin scripting);
 midscroll pins the real pointer for the whole drag, so one query is
 enough, and the ghost's offsets come from the daemon. Without kdotool
-nothing is drawn and scrolling is unaffected. On X11 sessions there is no
-drawing, but focus reporting still runs.
+nothing is drawn and scrolling is unaffected. On X11 the badge is placed
+at the pointer position when autoscroll starts, read through GDK.
 """
 
 import array
+import ctypes
 import ctypes.util
 import logging
 import os
@@ -56,13 +57,37 @@ if WAYLAND:
                                     + os.environ.get("LD_PRELOAD", "")).strip()
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
-    import cairo
-    import gi
-    gi.require_version("Gtk", "4.0")
-    gi.require_version("Gdk", "4.0")
-    gi.require_version("Gtk4LayerShell", "1.0")
-    from gi.repository import Gdk, Gio, GLib, Gtk
-    from gi.repository import Gtk4LayerShell as LayerShell
+    try:
+        import cairo
+        import gi
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Gdk", "4.0")
+        gi.require_version("Gtk4LayerShell", "1.0")
+        from gi.repository import Gdk, Gio, GLib, Gtk
+        from gi.repository import Gtk4LayerShell as LayerShell
+    except (ImportError, ValueError) as e:
+        # gtk4-layer-shell isn't packaged everywhere (e.g. Ubuntu 24.04),
+        # and some compositors (GNOME) don't support it anyway. Drawing is
+        # optional: fall back to focus reporting only.
+        NO_DRAW_REASON = f"overlay drawing unavailable ({e})"
+
+else:
+    # X11: a GTK 3 override-redirect popup can be placed anywhere and made
+    # click-through with an empty input shape, so the badge works without
+    # layer-shell. (GTK 4 dropped both abilities on X11.)
+    try:
+        import cairo
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+    except (ImportError, ValueError) as e:
+        NO_DRAW_REASON = f"X11 badge unavailable ({e})"
+
+# Wayland draws the badge and ghost with gtk4-layer-shell; X11 draws the
+# badge only, with GTK 3.
+DRAW = "NO_DRAW_REASON" not in globals()
 
 SOCK_PATH = "/run/midscroll/state.sock"
 ICON_PATH = "/usr/share/midscroll/move-vertical.svg"
@@ -251,7 +276,7 @@ def report_focus(sock, stop):
         stop.wait(FOCUS_POLL_SEC)
 
 
-if WAYLAND:
+if DRAW:
     def load_theme_cursor():
         """Your own pointer image as (surface, xhot, yhot), or None.
 
@@ -307,6 +332,8 @@ if WAYLAND:
             cr.paint_with_alpha(GHOST_ALPHA)
         return draw
 
+
+if DRAW and WAYLAND:
     class Overlay:
         """The badge and ghost cursor, on one click-through surface."""
 
@@ -490,6 +517,208 @@ if WAYLAND:
                             gy - self.hotspot[1])
 
 
+if DRAW and not WAYLAND:
+    def x11_popup(width, height, draw):
+        """A click-through, never-focused, always-on-top popup window.
+
+        Override-redirect (GTK POPUP), so the window manager leaves it
+        alone, with an empty input shape so clicks go straight through to
+        whatever is underneath. Returns (window, has_alpha).
+        """
+        win = Gtk.Window(type=Gtk.WindowType.POPUP)
+        win.set_default_size(width, height)
+        win.set_size_request(width, height)
+        win.set_resizable(False)
+        win.set_accept_focus(False)
+        win.set_keep_above(True)
+        win.set_skip_taskbar_hint(True)
+        win.set_app_paintable(True)
+        screen = win.get_screen()
+        visual = screen.get_rgba_visual()
+        # Without a compositor there's no transparency; things then draw
+        # on a square, which still reads fine.
+        alpha = visual is not None and screen.is_composited()
+        if visual is not None:
+            win.set_visual(visual)
+
+        def click_through(*_):
+            gdkwin = win.get_window()
+            if gdkwin is not None:
+                gdkwin.input_shape_combine_region(cairo.Region(), 0, 0)
+
+        def on_draw(_widget, cr):
+            cr.set_operator(cairo.OPERATOR_SOURCE)
+            if alpha:
+                cr.set_source_rgba(0, 0, 0, 0)
+            else:
+                cr.set_source_rgb(30 / 255, 30 / 255, 32 / 255)
+            cr.paint()
+            cr.set_operator(cairo.OPERATOR_OVER)
+            draw(cr)
+            return True
+
+        win.connect("draw", on_draw)
+        win.connect("realize", click_through)
+        win.connect("map", click_through)
+        win.click_through = click_through
+        return win, alpha
+
+    def x11_cursor_theme():
+        """(theme, size) from GTK's XSETTINGS, which GNOME and most X11
+        desktops publish, falling back to the environment/KDE lookup."""
+        settings = Gtk.Settings.get_default()
+        theme = settings.props.gtk_cursor_theme_name or cursor_theme_name()
+        size = settings.props.gtk_cursor_theme_size
+        if not 0 < size <= MAX_CURSOR_PX:
+            size = cursor_size()
+        return theme, size
+
+    class X11CursorHider:
+        """Hide the real pointer while autoscroll runs (XFixes).
+
+        midscroll parks the real pointer under the badge, where it would
+        only clutter it; the ghost cursor shows where the hand is instead.
+        XFixes hides are tied to this X connection, so if the overlay dies
+        the X server shows the pointer again by itself.
+        """
+
+        def __init__(self):
+            self.dpy = None
+            self.hidden = False
+            try:
+                x11 = ctypes.CDLL(ctypes.util.find_library("X11")
+                                  or "libX11.so.6")
+                xf = ctypes.CDLL(ctypes.util.find_library("Xfixes")
+                                 or "libXfixes.so.3")
+            except OSError as err:
+                log.info("XFixes unavailable (%s); pointer stays visible",
+                         err)
+                return
+            x11.XOpenDisplay.restype = ctypes.c_void_p
+            x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            x11.XDefaultRootWindow.restype = ctypes.c_ulong
+            x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+            x11.XFlush.argtypes = [ctypes.c_void_p]
+            xf.XFixesHideCursor.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+            xf.XFixesShowCursor.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+            self.x11, self.xf = x11, xf
+            self.dpy = x11.XOpenDisplay(None)
+            if self.dpy:
+                self.root = x11.XDefaultRootWindow(self.dpy)
+
+        def set_hidden(self, hidden):
+            # Hide/show nest per connection, so only ever toggle once.
+            if not self.dpy or hidden == self.hidden:
+                return
+            self.hidden = hidden
+            (self.xf.XFixesHideCursor if hidden
+             else self.xf.XFixesShowCursor)(self.dpy, self.root)
+            self.x11.XFlush(self.dpy)
+
+    class X11Badge:
+        """The scroll badge and ghost cursor on X11.
+
+        The badge sits at the point where autoscroll started, where
+        midscroll holds the real pointer; the ghost cursor follows your
+        hand from there. Both are click-through popups (see x11_popup).
+        """
+
+        def __init__(self):
+            self.active = False
+            self.anchor = (0, 0)
+            self.hider = X11CursorHider()
+            self.win, _ = x11_popup(BADGE_PX, BADGE_PX, self._draw)
+            try:
+                self.icon = GdkPixbuf.Pixbuf.new_from_file_at_size(
+                    ICON_PATH, ICON_PX, ICON_PX)
+            except GLib.Error as err:
+                log.warning("cannot load %s: %s", ICON_PATH, err)
+                self.icon = None
+            self.cursor = self._load_cursor()
+            if self.cursor is not None:
+                gw = self.cursor[0].get_width()
+                gh = self.cursor[0].get_height()
+                self.hot = (self.cursor[1], self.cursor[2])
+            else:
+                gw, gh, self.hot = GHOST_W, GHOST_H, (1, 1)
+            self.ghost, _ = x11_popup(gw, gh, self._draw_ghost)
+
+        @staticmethod
+        def _load_cursor():
+            theme, size = x11_cursor_theme()
+            path = find_cursor_file(theme)
+            image = read_xcursor(path, size) if path else None
+            if not image:
+                log.info("cursor theme %r not readable; plain ghost arrow",
+                         theme)
+                return None
+            pixels, width, height, xhot, yhot = image
+            stride = cairo.ImageSurface.format_stride_for_width(
+                cairo.FORMAT_ARGB32, width)
+            surface = cairo.ImageSurface.create_for_data(
+                bytearray(pixels), cairo.FORMAT_ARGB32, width, height,
+                stride)
+            log.info("ghost cursor: %s (%dx%d)", path, width, height)
+            return surface, xhot, yhot
+
+        def _draw_ghost(self, cr):
+            if self.cursor is None:
+                draw_fallback_ghost(cr, GHOST_W, GHOST_H)
+                return
+            cr.set_source_surface(self.cursor[0], 0, 0)
+            cr.paint_with_alpha(GHOST_ALPHA)
+
+        def _draw(self, cr):
+            r = BADGE_PX / 2
+            cr.arc(r, r, r - 1.5, 0, 6.2832)
+            # Same look as the Wayland badge's CSS: dark disc, faint rim.
+            cr.set_source_rgba(30 / 255, 30 / 255, 32 / 255, 0.82)
+            cr.fill_preserve()
+            cr.set_line_width(1)
+            cr.set_source_rgba(1, 1, 1, 0.28)
+            cr.stroke()
+            if self.icon is not None:
+                Gdk.cairo_set_source_pixbuf(
+                    cr, self.icon, r - self.icon.get_width() / 2,
+                    r - self.icon.get_height() / 2)
+                cr.paint()
+
+        def set_active(self, active):
+            if active == self.active:
+                return
+            self.active = active
+            if not active:
+                self.win.hide()
+                self.ghost.hide()
+                self.hider.set_hidden(False)
+                return
+            # The badge marks where autoscroll started: the pointer's
+            # position right now.
+            seat = Gdk.Display.get_default().get_default_seat()
+            _screen, x, y = seat.get_pointer().get_position()
+            self.anchor = (x, y)
+            self.win.move(int(x - BADGE_PX / 2), int(y - BADGE_PX / 2))
+            self.win.show()
+            self.win.click_through()
+            # Only the badge at the click point; the parked pointer would
+            # sit on top of it. The ghost appears once the hand moves.
+            self.hider.set_hidden(True)
+
+        def set_offset(self, dx, dy):
+            """Where the ghost is, relative to the anchor."""
+            if not self.active:
+                return
+            if not dx and not dy:
+                self.ghost.hide()  # hand back at the click: badge only
+                return
+            x = self.anchor[0] + dx - self.hot[0]
+            y = self.anchor[1] + dy - self.hot[1]
+            self.ghost.move(int(x), int(y))
+            if not self.ghost.get_visible():
+                self.ghost.show()
+                self.ghost.click_through()
+
+
 def overflow_uid():
     """The uid the kernel shows for an owner outside our user namespace."""
     try:
@@ -574,12 +803,20 @@ def watch_socket(overlay):
 def main():
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s: %(message)s")
-    if not WAYLAND:
-        # X11 has no supported click-through overlay implementation here.
-        # Keep focus reporting, but do not claim that ghost mode is active.
-        log.info("X11 session: ghost cursor and badge unavailable; "
-                 "focus reporting only")
+    if not DRAW:
+        # No supported click-through overlay here (X11, or no
+        # gtk4-layer-shell). Keep focus reporting, but do not claim that
+        # ghost mode is active.
+        log.info("%s; focus reporting only", NO_DRAW_REASON)
         watch_socket(None)
+        return
+
+    if not WAYLAND:
+        log.info("X11 session: drawing the scroll badge and ghost cursor")
+        badge = X11Badge()
+        threading.Thread(target=watch_socket, args=(badge,),
+                         daemon=True).start()
+        Gtk.main()
         return
 
     app = Gtk.Application(application_id="org.midscroll.overlay",

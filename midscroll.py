@@ -557,9 +557,10 @@ async def ticker(states, notifier, focus):
         notifier.set(any(st.scrolling for st in states.values()))
         if GHOST_CURSOR and now - last_ghost >= 1.0 / GHOST_HZ:
             last_ghost = now
-            # Only an anchored drag has a ghost: in toggle mode the real
-            # cursor moves, so there is nothing to stand in for it.
-            dragging = next((s for s in states.values() if s.active), None)
+            # Hold-drag and toggle scrolling both anchor the real pointer,
+            # so both get a ghost standing in for it.
+            dragging = next((s for s in states.values()
+                             if s.active or s.toggled), None)
             if dragging is not None:
                 notifier.pos(dragging.dx * GHOST_SCALE,
                              dragging.dy * GHOST_SCALE)
@@ -708,8 +709,15 @@ def _toggle_key(ev, st, ui, focus):
         # click doesn't also land in whatever is under the cursor.
         if ev.value == 1:
             log.debug("toggle scroll stopped")
+            dx, dy = st.dx, st.dy
             st.reset()
             st.eat_release = code
+            if SNAP_CURSOR_ON_RELEASE:
+                # The pointer was anchored; catch it up to the ghost.
+                sx, sy = int(dx * GHOST_SCALE), int(dy * GHOST_SCALE)
+                if sx or sy:
+                    log.info("snap cursor: dx=%g dy=%g", sx, sy)
+                    _snap_cursor(ui, sx, sy)
         return True
     # Idle: only the middle button starts autoscroll.
     if code == e.BTN_MIDDLE:
@@ -805,18 +813,13 @@ async def pump(path, dev, states, tasks, focus, our_paths):
                             ui.syn()
                 continue
             if ev.type == e.EV_REL and ev.code in (e.REL_X, e.REL_Y):
-                if st.toggled:
-                    # Toggle mode: track distance from the origin but let the
-                    # motion through, so the cursor follows the hand like
-                    # Windows autoscroll.
-                    _accumulate(st, ev)
-                    ui.write(ev.type, ev.code, ev.value)
-                    continue
-                if st.pending or st.active:
-                    # Hold-drag: swallow cursor motion so the pointer stays
-                    # anchored at the press point. Scroll events then keep
-                    # hitting the original window instead of whatever the
-                    # cursor would have drifted over.
+                if st.pending or st.active or st.toggled:
+                    # Hold-drag and toggle scrolling: swallow cursor motion
+                    # so the pointer stays anchored at the press point.
+                    # Scroll events then keep hitting the original window
+                    # instead of whatever the cursor would have drifted
+                    # over (a browser's tab strip, a panel...). The
+                    # overlay's ghost cursor shows where the hand is.
                     _accumulate(st, ev)
                     continue
             if ev.type == e.EV_SYN:
