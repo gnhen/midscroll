@@ -266,15 +266,34 @@ def _peer_pid(sock):
 
 
 def _peer_is_overlay(pid):
+    """Sanity check that a socket peer is the overlay helper.
+
+    The overlay is a Python script, so /proc/<pid>/cmdline reads
+    "/usr/bin/python3 /usr/bin/midscroll-overlay": through its shebang, and
+    again after it re-execs itself to set LD_PRELOAD. argv[0] is therefore
+    the interpreter, and the script name is the first non-option argument.
+    The seat check on the peer's uid is the real gate; this only keeps
+    unrelated processes of a logged-in user from being counted as helpers.
+    """
     if pid is None:
         return False
+    names = ("midscroll-overlay", "midscroll-overlay.py")
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as f:
-            argv0 = f.read().split(b"\0", 1)[0].decode("utf-8")
+            argv = [a.decode("utf-8") for a in f.read().split(b"\0") if a]
     except (OSError, UnicodeDecodeError):
         return False
-    return os.path.basename(argv0) in ("midscroll-overlay",
-                                       "midscroll-overlay.py")
+    if not argv:
+        return False
+    first = os.path.basename(argv[0])
+    if first in names:
+        return True
+    if first.startswith("python"):
+        for arg in argv[1:]:
+            if arg.startswith("-"):
+                continue
+            return os.path.basename(arg) in names
+    return False
 
 
 def _uid_state(uid):
@@ -480,6 +499,15 @@ class Notifier:
                 u for u in set(self.writers.values()) if _uid_is_active(u))
         self._broadcast(msg)
 
+    def heartbeat(self):
+        """Re-send "1" during a drag so the helper's watchdog stays quiet.
+
+        set() and pos() only speak on change, so a drag held still for a few
+        seconds would otherwise look like a dead daemon and be hidden.
+        """
+        if self.msg == b"1\n":
+            self._broadcast(self.msg)
+
     def pos(self, dx, dy):
         """Offset of the ghost cursor from the anchor, in screen pixels."""
         if self.msg != b"1\n":
@@ -618,6 +646,7 @@ async def ticker(states, notifier, focus):
     # would quietly make scrolling slower than configured.
     last = time.monotonic()
     last_ghost = last
+    last_beat = last
     while True:
         await asyncio.sleep(1.0 / TICK_HZ)
         now = time.monotonic()
@@ -629,6 +658,9 @@ async def ticker(states, notifier, focus):
             except Exception as err:  # one bad tick must not kill the loop
                 log.error("tick error: %r", err)
         notifier.set(any(st.scrolling for st in states.values()))
+        if now - last_beat >= 1.0:
+            last_beat = now
+            notifier.heartbeat()
         if GHOST_CURSOR and now - last_ghost >= 1.0 / GHOST_HZ:
             last_ghost = now
             # Only an anchored drag has a ghost: in toggle mode the real
