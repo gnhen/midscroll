@@ -337,6 +337,7 @@ if WAYLAND:
             self.ghost = Gtk.DrawingArea()
             self.cursor = None
             self.cursor_signature = None
+            self.ghost_visible = True
             self.fixed = Gtk.Fixed()
             self.fixed.put(self.badge, 0, 0)
             self.fixed.put(self.ghost, 0, 0)
@@ -356,7 +357,7 @@ if WAYLAND:
             self.win.connect("map", self._make_click_through)
             self.active = False
             self.seq = 0        # discards stale position queries
-            self.anchor = None  # where the pointer is pinned, monitor-local
+            self.anchor = None  # global anchor position
             self.offset = (0, 0)
             self.geo = None     # geometry of the monitor we are drawn on
             self.last_line = time.monotonic()
@@ -364,7 +365,15 @@ if WAYLAND:
             self._refresh_cursor()
 
         def _cursor_signature(self):
-            return (cursor_theme_name(), cursor_size())
+            theme = cursor_theme_name()
+            path = find_cursor_file(theme)
+            try:
+                stat_result = os.stat(path) if path else None
+            except OSError:
+                stat_result = None
+            return (theme, cursor_size(), path,
+                    stat_result.st_mtime_ns if stat_result else None,
+                    stat_result.st_size if stat_result else None)
 
         def _refresh_cursor(self):
             """Reload the ghost when the compositor's cursor settings change."""
@@ -438,6 +447,10 @@ if WAYLAND:
             if self.active and self.anchor is not None:
                 self._layout()
 
+        def set_ghost_visible(self, visible):
+            self.ghost_visible = visible
+            self.ghost.set_visible(visible)
+
         def _got_pos(self, proc, res, seq):
             try:
                 _ok, out, _err = proc.communicate_utf8_finish(res)
@@ -456,8 +469,11 @@ if WAYLAND:
             self._make_click_through()
 
         def _anchor_at(self, x, y):
-            # Layer-shell surfaces belong to one output; find the monitor
-            # holding the (global) anchor and work in its coordinates.
+            self.anchor = (x, y)
+            self._select_monitor(x, y)
+
+        def _select_monitor(self, x, y):
+            """Select the output containing a global pointer coordinate."""
             monitors = Gdk.Display.get_default().get_monitors()
             self.geo = None
             for i in range(monitors.get_n_items()):
@@ -468,24 +484,29 @@ if WAYLAND:
                     LayerShell.set_monitor(self.win, mon)
                     self.geo = geo
                     break
-            if self.geo is None:
-                self.anchor = (x, y)
-            else:
-                self.anchor = (x - self.geo.x, y - self.geo.y)
 
         def _layout(self):
             if self.anchor is None:
                 return
             ax, ay = self.anchor
-            self.fixed.move(self.badge, ax - BADGE_PX // 2,
-                            ay - BADGE_PX // 2)
             gx, gy = ax + self.offset[0], ay + self.offset[1]
             if self.geo is not None:
-                # Windows stops the cursor at the screen edge; so do we.
-                gx = max(0, min(gx, self.geo.width - 1))
-                gy = max(0, min(gy, self.geo.height - 1))
+                if not (self.geo.x <= gx < self.geo.x + self.geo.width
+                        and self.geo.y <= gy < self.geo.y + self.geo.height):
+                    self._select_monitor(gx, gy)
+            if self.geo is not None:
+                bx, by = ax - self.geo.x, ay - self.geo.y
+                gx, gy = gx - self.geo.x, gy - self.geo.y
+            else:
+                bx, by = ax, ay
+            self.badge.set_visible(
+                self.geo is None
+                or (self.geo.x <= ax < self.geo.x + self.geo.width
+                    and self.geo.y <= ay < self.geo.y + self.geo.height))
             # Place the image by its hotspot, the way the compositor
             # places the real one, so the ghost points at the same pixel.
+            self.fixed.move(self.badge, bx - BADGE_PX // 2,
+                            by - BADGE_PX // 2)
             self.fixed.move(self.ghost, gx - self.hotspot[0],
                             gy - self.hotspot[1])
 
@@ -537,6 +558,8 @@ def handle_line(overlay, text):
             return
         if abs(dx) <= MAX_OFFSET and abs(dy) <= MAX_OFFSET:
             overlay.set_offset(dx, dy)
+    elif text.startswith("ghost "):
+        overlay.set_ghost_visible(text == "ghost 1")
 
 
 def watch_socket(overlay):

@@ -35,8 +35,9 @@ PrivateTmp=yes
 PrivateNetwork=yes
 IPAddressDeny=any
 RestrictAddressFamilies=AF_UNIX
-ProtectProc=invisible
-ProcSubset=pid
+# The state socket verifies the peer executable through /proc/<pid>/cmdline.
+# Hiding other users' processes would make legitimate session overlays fail
+# closed and disable focus reporting.
 ProtectKernelTunables=yes
 ProtectKernelLogs=yes
 ProtectKernelModules=yes

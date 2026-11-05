@@ -64,6 +64,7 @@ DESKTOP_SHELLS = ["plasmashell", "nemo-desktop", "xfdesktop", "waybar",
 HIRES_PER_LINE = 120      # kernel convention: 120 hi-res units per notch
 MAX_TICK_DT = 0.25        # cap the per-tick time step (see ticker())
 GHOST_HZ = 60.0           # rate of ghost-cursor updates to the helper
+RELEASE_FREEZE_SEC = 0.1  # absorb motion immediately after button release
 PHYS_MARKER = "midscroll"  # phys string on our mirrors, so we skip our own
 CONFIG_PATH = "/etc/midscroll.conf"
 SOCK_DIR = "/run/midscroll"
@@ -101,7 +102,12 @@ KEYBOARD_KEYS = (e.KEY_A, e.KEY_Z, e.KEY_SPACE, e.KEY_ENTER)
 
 
 def parse_bool(text):
-    return text.strip().lower() in ("1", "true", "yes", "on")
+    value = text.strip().lower()
+    if value in ("1", "true", "yes", "on"):
+        return True
+    if value in ("0", "false", "no", "off"):
+        return False
+    raise ValueError(f"invalid boolean {text!r}")
 
 
 def validate(key, val):
@@ -221,7 +227,11 @@ def load_config(path=CONFIG_PATH):
                 continue
             globals()[k] = val
         elif k in BOOL_KEYS:
-            globals()[k] = parse_bool(v)
+            try:
+                globals()[k] = parse_bool(v)
+            except ValueError as err:
+                log.error("config: %s = %r rejected: %s (keeping %s)",
+                          k, v, err, globals()[k])
         elif k == "BLACKLIST":
             globals()["BLACKLIST"] = parse_blacklist(v)
         elif k in DEVICE_KEYS:
@@ -241,6 +251,30 @@ def _peer_uid(sock):
         return uid
     except OSError:
         return None
+
+
+def _peer_pid(sock):
+    if sock is None:
+        return None
+    try:
+        creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                struct.calcsize("3i"))
+        pid, _uid, _gid = struct.unpack("3i", creds)
+        return pid
+    except OSError:
+        return None
+
+
+def _peer_is_overlay(pid):
+    if pid is None:
+        return False
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            argv0 = f.read().split(b"\0", 1)[0].decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return os.path.basename(argv0) in ("midscroll-overlay",
+                                       "midscroll-overlay.py")
 
 
 def _uid_state(uid):
@@ -279,6 +313,11 @@ def _uid_is_active(uid):
     return _uid_state(uid) == "active"
 
 
+class FocusClient:
+    def __init__(self, uid):
+        self.uid = uid
+
+
 class FocusFilter:
     """The focused window class reported by each connected helper.
 
@@ -293,6 +332,8 @@ class FocusFilter:
         self.by_client = {}
 
     def update(self, client, wclass):
+        if not _uid_is_active(client.uid):
+            return
         # Bounded and stripped of control characters: this string comes
         # off a socket and ends up in the journal.
         clean = "".join(c for c in wclass if c.isprintable())[:MAX_FOCUS_LEN]
@@ -305,7 +346,9 @@ class FocusFilter:
     @property
     def blocked(self):
         blockers = BLACKLIST if DESKTOP_SCROLL else BLACKLIST + DESKTOP_SHELLS
-        for wclass in self.by_client.values():
+        for client, wclass in self.by_client.items():
+            if not _uid_is_active(client.uid):
+                continue
             c = wclass.lower()
             if any(b in c for b in blockers):
                 return True
@@ -338,6 +381,7 @@ class Notifier:
         self.server = None
         self.last_pos = None
         self.active_uids = frozenset()
+        self.ghost_visible = None
 
     async def start(self):
         try:
@@ -364,9 +408,12 @@ class Notifier:
         return same >= MAX_CLIENTS_PER_UID
 
     async def _client(self, reader, writer):
-        uid = _peer_uid(writer.get_extra_info("socket"))
-        if uid is None or not _uid_has_seat(uid):
-            log.debug("rejected socket from uid %s", uid)
+        peer_socket = writer.get_extra_info("socket")
+        uid = _peer_uid(peer_socket)
+        pid = _peer_pid(peer_socket)
+        if (uid is None or not _uid_has_seat(uid)
+                or not _peer_is_overlay(pid)):
+            log.debug("rejected state socket peer uid=%s pid=%s", uid, pid)
             writer.close()
             return
         if self._too_many(uid):
@@ -375,10 +422,10 @@ class Notifier:
             log.warning("too many state-socket clients; refusing uid %s", uid)
             writer.close()
             return
-        client = object()  # identity key for this connection's focus report
+        client = FocusClient(uid)
         self.writers[writer] = uid
-        if _uid_is_active(uid):
-            self.active_uids |= {uid}
+        self.active_uids = frozenset(
+            u for u in set(self.writers.values()) if _uid_is_active(u))
         try:
             writer.write(self.msg)
             while True:
@@ -443,6 +490,12 @@ class Notifier:
         self.last_pos = p
         self._broadcast(b"pos %d %d\n" % p, active_only=True)
 
+    def ghost(self, visible):
+        if visible == self.ghost_visible:
+            return
+        self.ghost_visible = visible
+        self._broadcast(b"ghost %d\n" % int(visible), active_only=True)
+
 
 class State:
     """Scroll session for one grabbed mouse.
@@ -462,6 +515,8 @@ class State:
         self.toggled = False      # toggle-mode scrolling (no button held)
         self.passthrough = False  # middle held over a blacklisted app
         self.eat_release = None   # button whose release to swallow (toggle)
+        self.release_pending = False
+        self.release_frozen_until = 0.0
         self.dx = 0.0             # cursor offset from the origin
         self.dy = 0.0
         self.acc_v = 0.0          # fractional hi-res units carried over
@@ -503,14 +558,33 @@ def _clamp(v):
 
 
 def _snap_cursor(ui, dx, dy):
-    """Replay accumulated drag offset as one relative move.
+    """Replay accumulated drag offset without diagonal acceleration coupling.
 
-    A single pair of REL_X/REL_Y events makes the cursor appear at
-    its target position instantly with no animation.
+    Pointer acceleration can treat a simultaneous X/Y report as a faster
+    diagonal vector than either axis alone. Emit the axes in separate reports
+    so the final position follows the independently tracked ghost offsets.
     """
-    ui.write(e.EV_REL, e.REL_X, int(dx))
-    ui.write(e.EV_REL, e.REL_Y, int(dy))
-    ui.syn()
+    x, y = int(dx), int(dy)
+    if x:
+        ui.write(e.EV_REL, e.REL_X, x)
+        ui.syn()
+    if y:
+        ui.write(e.EV_REL, e.REL_Y, y)
+        ui.syn()
+
+
+def _finish_release(st, ui, notifier):
+    """Finish a middle release after its evdev report is complete."""
+    was_click, dx, dy = st.release()
+    if SNAP_CURSOR_ON_RELEASE:
+        sx = int(dx * GHOST_SCALE)
+        sy = int(dy * GHOST_SCALE)
+        if sx or sy:
+            log.info("snap cursor: dx=%g dy=%g", sx, sy)
+            _snap_cursor(ui, sx, sy)
+    notifier.ghost(False)
+    st.release_frozen_until = time.monotonic() + RELEASE_FREEZE_SEC
+    return was_click
 
 
 def _is_button(code):
@@ -559,10 +633,17 @@ async def ticker(states, notifier, focus):
             last_ghost = now
             # Only an anchored drag has a ghost: in toggle mode the real
             # cursor moves, so there is nothing to stand in for it.
-            dragging = next((s for s in states.values() if s.active), None)
-            if dragging is not None:
+            dragging = [s for s in states.values() if s.active]
+            # One overlay cannot faithfully represent two independent
+            # anchored pointers, so hide the ghost rather than showing the
+            # wrong device's position.
+            if len(dragging) == 1:
+                dragging = dragging[0]
+                notifier.ghost(True)
                 notifier.pos(dragging.dx * GHOST_SCALE,
                              dragging.dy * GHOST_SCALE)
+            elif len(dragging) > 1:
+                notifier.ghost(False)
 
 
 def tick(st, dt, focus):
@@ -733,7 +814,7 @@ def _toggle_key(ev, st, ui, focus):
     return False  # other buttons while idle pass straight through
 
 
-async def pump(path, dev, states, tasks, focus, our_paths):
+async def pump(path, dev, states, tasks, focus, our_paths, notifier):
     """Grab one mouse and forward its events, intercepting middle-drags."""
     # Belt to is_mouse's phys check and main's our_paths skip: never pump one
     # of our own mirrors. Guards the brief hotplug window between a mirror
@@ -786,25 +867,17 @@ async def pump(path, dev, states, tasks, focus, our_paths):
                         st.passthrough = False
                         ui.write(e.EV_KEY, e.BTN_MIDDLE, 0)
                     else:
-                        was_click, dx, dy = st.release()
-                        if SNAP_CURSOR_ON_RELEASE:
-                            # Catch the anchored cursor up to wherever the real
-                            # mouse ended up, like Windows does.
-                            # Keep this identical to the offset sent to the
-                            # overlay, including GHOST_SCALE.
-                            sx = int(dx * GHOST_SCALE)
-                            sy = int(dy * GHOST_SCALE)
-                            if sx or sy:
-                                log.info("snap cursor: dx=%g dy=%g", sx, sy)
-                                _snap_cursor(ui, sx, sy)
-                        if was_click:
-                            # No drag happened (never exceeded dead zone).
-                            ui.write(e.EV_KEY, e.BTN_MIDDLE, 1)
-                            ui.syn()
-                            ui.write(e.EV_KEY, e.BTN_MIDDLE, 0)
-                            ui.syn()
+                        st.release_pending = True
                 continue
             if ev.type == e.EV_REL and ev.code in (e.REL_X, e.REL_Y):
+                if st.release_pending:
+                    # Motion sharing the release report happened after the
+                    # button release; it must not move past the ghost.
+                    continue
+                if st.release_frozen_until:
+                    if time.monotonic() < st.release_frozen_until:
+                        continue
+                    st.release_frozen_until = 0.0
                 if st.toggled:
                     # Toggle mode: track distance from the origin but let the
                     # motion through, so the cursor follows the hand like
@@ -818,10 +891,21 @@ async def pump(path, dev, states, tasks, focus, our_paths):
                     # hitting the original window instead of whatever the
                     # cursor would have drifted over.
                     _accumulate(st, ev)
+                    if st.active:
+                        notifier.ghost(True)
+                        notifier.pos(st.dx * GHOST_SCALE,
+                                     st.dy * GHOST_SCALE)
                     continue
             if ev.type == e.EV_SYN:
                 if ev.code == e.SYN_DROPPED:
                     _resync(ui, dev, held, st)
+                elif st.release_pending:
+                    was_click = _finish_release(st, ui, notifier)
+                    if was_click:
+                        ui.write(e.EV_KEY, e.BTN_MIDDLE, 1)
+                        ui.syn()
+                        ui.write(e.EV_KEY, e.BTN_MIDDLE, 0)
+                        ui.syn()
                 else:
                     ui.syn()
             elif ev.type in (e.EV_KEY, e.EV_REL):
@@ -1043,7 +1127,7 @@ async def main():
                     dev.close()
                     continue
                 tasks[path] = asyncio.create_task(
-                    pump(path, dev, states, tasks, focus, our_paths))
+                    pump(path, dev, states, tasks, focus, our_paths, notifier))
             await asyncio.sleep(2)
     finally:
         tick_task.cancel()

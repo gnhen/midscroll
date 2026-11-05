@@ -235,6 +235,21 @@ def main(argv):
     )
 
     directory = os.path.dirname(CONFIG_PATH) or "/"
+    try:
+        directory_stat = os.stat(directory)
+    except OSError as err:
+        die(f"cannot inspect {directory}: {err}")
+    if (directory_stat.st_uid != 0
+            or directory_stat.st_mode & 0o022
+            or not os.path.isdir(directory)):
+        die(f"refusing to write through untrusted directory {directory}")
+    try:
+        with open(CONFIG_PATH, "rb") as old_file:
+            old_config = old_file.read()
+    except FileNotFoundError:
+        old_config = None
+    except OSError as err:
+        die(f"cannot read existing {CONFIG_PATH}: {err}")
     fd, tmp = tempfile.mkstemp(dir=directory, prefix=".midscroll.conf.")
     try:
         with os.fdopen(fd, "w") as f:
@@ -254,6 +269,19 @@ def main(argv):
             subprocess.run(["systemctl", "restart", "midscroll.service"],
                            check=True)
         except (OSError, subprocess.CalledProcessError) as err:
+            if old_config is not None:
+                restore_fd, restore_tmp = tempfile.mkstemp(
+                    dir=directory, prefix=".midscroll.conf.restore.")
+                try:
+                    with os.fdopen(restore_fd, "wb") as restore_file:
+                        restore_file.write(old_config)
+                    os.chmod(restore_tmp, 0o644)
+                    os.replace(restore_tmp, CONFIG_PATH)
+                except OSError:
+                    try:
+                        os.unlink(restore_tmp)
+                    except OSError:
+                        pass
             die(f"restart failed: {err}")
         print("restarted midscroll.service")
 

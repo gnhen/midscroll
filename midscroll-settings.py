@@ -342,8 +342,8 @@ class Window(Gtk.ApplicationWindow):
             avail = int(monitor.get_geometry().height * 0.92)
             _min, nat, _mb, _nb = self.measure(Gtk.Orientation.VERTICAL, 520)
             self.set_default_size(520, min(nat, avail))
-        except Exception:
-            pass  # sizing is best-effort; never block the window from opening
+        except (AttributeError, TypeError, ValueError, GLib.Error) as err:
+            self.set_status(f"Could not size settings window: {err}")
 
     # ---- widget builders ----
     def _heading(self, text):
