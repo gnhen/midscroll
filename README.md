@@ -11,7 +11,8 @@ both axes, so it pans wide pages too.
 Prefer clicking to holding? Turn on **toggle mode** (in the settings GUI or
 `TOGGLE_MODE = true`) for the Windows-Explorer / Firefox style instead: one
 middle click starts autoscroll, the cursor moves freely, and any click
-stops it.
+stops it. To start with a middle-drag and keep scrolling after release,
+use [optional latched drag mode](#optional-latched-drag-mode).
 
 It works in every app, on Wayland and X11, because it operates at the
 kernel input layer (evdev in, uinput out) instead of hooking any
@@ -106,6 +107,7 @@ PX_PER_NOTCH = 55         # px one wheel notch scrolls in your apps
 TICK_HZ = 90              # scroll event rate (higher = smoother)
 NATURAL = false           # true = inverted / touchscreen-style direction
 TOGGLE_MODE = false       # true = click to start/stop instead of hold-drag
+LATCHED_DRAG_MODE = false # true = keep drag scrolling after release
 DESKTOP_SCROLL = false    # true = also autoscroll over the desktop and panels
 GHOST_CURSOR = true       # draw a cursor that follows your hand while dragging
 GHOST_SCALE = 1.0         # how far it travels per unit of mouse motion
@@ -133,11 +135,25 @@ midscroll --help          # full option list
 
 `--debug` turns on debug logging (device probing, focus changes, scroll
 starts); `--blacklist "app1, app2"`, `--natural` / `--no-natural`,
-`--toggle-mode` / `--no-toggle-mode`, `--desktop` / `--no-desktop`
+`--toggle-mode` / `--no-toggle-mode`,
+`--latched-drag-mode` / `--no-latched-drag-mode`, `--desktop` / `--no-desktop`
 (autoscroll over the desktop and panels), `--ghost-cursor` /
 `--no-ghost-cursor` and `--snap-cursor` / `--no-snap-cursor`
 toggle the corresponding behaviors. `--list-devices`
 prints the device list and exits.
+
+### Optional latched drag mode
+
+Set `LATCHED_DRAG_MODE = true` in `/etc/midscroll.conf` or enable **Latch drag
+scrolling** in Settings. With `TOGGLE_MODE = false`, quick middle-clicks retain
+native paste/open-link behavior. Drag beyond `DEADZONE_PX` to start scrolling,
+then release to keep scrolling. Mouse movement continues to control speed and
+direction while the pointer and scroll indicator remain anchored. Press any
+mouse button to cancel; that press and release are consumed. Cursor snapping,
+when enabled, happens on cancellation. Toggle mode takes precedence when both
+settings are enabled. The default is off. CLI overrides are
+`--latched-drag-mode` and `--no-latched-drag-mode`. It does not monitor
+the keyboard.
 
 ### Choosing which mice to use
 
@@ -250,6 +266,12 @@ your clicks.
 
 Found something sketchy or a way to harden it further? Open an issue or PR -
 security review is genuinely welcome.
+
+## Tests
+
+Run `python3 -m unittest discover -s tests -v` with `python3-evdev` installed.
+The tests use fake mouse and uinput devices; they need no root access or
+hardware.
 
 ## License
 

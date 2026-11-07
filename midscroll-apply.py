@@ -49,7 +49,8 @@ FLOATS = {
     "TICK_HZ": True,
     "GHOST_SCALE": True,
 }
-BOOLS = ("NATURAL", "TOGGLE_MODE", "DESKTOP_SCROLL", "GHOST_CURSOR",
+BOOLS = ("NATURAL", "TOGGLE_MODE", "LATCHED_DRAG_MODE", "DESKTOP_SCROLL",
+         "GHOST_CURSOR",
          "SNAP_CURSOR_ON_RELEASE")
 DEVICES = ("EXTRA_DEVICES", "IGNORE_DEVICES")
 KEYS = tuple(FLOATS) + BOOLS + DEVICES + ("BLACKLIST",)
@@ -59,7 +60,8 @@ DEFAULTS = {
     "DEADZONE_PX": 15.0, "SPEED_MULT": 0.008, "SPEED_EXP": 2.2,
     "MAX_PX_PER_SEC": 30000.0, "PX_PER_NOTCH": 55.0, "MAX_DRAG_PX": 1200.0,
     "TICK_HZ": 90.0, "GHOST_SCALE": 1.0, "NATURAL": False,
-    "TOGGLE_MODE": False, "DESKTOP_SCROLL": False, "GHOST_CURSOR": True,
+    "TOGGLE_MODE": False, "LATCHED_DRAG_MODE": False,
+    "DESKTOP_SCROLL": False, "GHOST_CURSOR": True,
     "SNAP_CURSOR_ON_RELEASE": True,
     "BLACKLIST": "freecad, orcaslicer, minecraft",
     "EXTRA_DEVICES": "", "IGNORE_DEVICES": "",
@@ -84,6 +86,10 @@ NATURAL = {NATURAL}           # true = inverted / touchscreen-style direction
 # Click the middle button once to start autoscroll and again (or any click)
 # to stop, Windows-Explorer style, instead of holding it and dragging.
 TOGGLE_MODE = {TOGGLE_MODE}
+
+# Keep a middle-drag scrolling after release; quick clicks stay native.
+# Ignored when TOGGLE_MODE is true. Any mouse click cancels and is consumed.
+LATCHED_DRAG_MODE = {LATCHED_DRAG_MODE}
 
 # Autoscroll over the desktop and panels too. Off by default, so a middle-drag
 # on the desktop/taskbar (plasmashell, xfdesktop, waybar, ...) is left alone.
@@ -221,6 +227,7 @@ def main(argv):
             values[key] = clean_list(val, r"[^\w.\- ]", 64, 32, 512)
 
     text = TEMPLATE.format(
+        LATCHED_DRAG_MODE="true" if values["LATCHED_DRAG_MODE"] else "false",
         NATURAL="true" if values["NATURAL"] else "false",
         TOGGLE_MODE="true" if values["TOGGLE_MODE"] else "false",
         DESKTOP_SCROLL="true" if values["DESKTOP_SCROLL"] else "false",

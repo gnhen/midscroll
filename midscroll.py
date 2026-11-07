@@ -29,6 +29,7 @@ PX_PER_NOTCH = 55.0       # how many px one wheel notch scrolls in your apps
 MAX_DRAG_PX = 1200.0      # cap on effective drag distance (~screen height)
 TICK_HZ = 90.0            # scroll event rate (higher = smoother)
 NATURAL = False           # True inverts scroll direction
+LATCHED_DRAG_MODE = False  # True: keep drag-scroll running after release
 TOGGLE_MODE = False       # True: click to start/stop instead of hold-and-drag
 DESKTOP_SCROLL = False    # True: also autoscroll over the desktop and panels
 GHOST_CURSOR = True       # True: helper draws a cursor at the dragged point
@@ -88,7 +89,8 @@ WRITE_DROP_BYTES = 65536   # disconnect a client this far behind
 
 FLOAT_KEYS = {"DEADZONE_PX", "TICK_HZ", "SPEED_MULT", "SPEED_EXP",
               "MAX_PX_PER_SEC", "PX_PER_NOTCH", "MAX_DRAG_PX", "GHOST_SCALE"}
-BOOL_KEYS = {"NATURAL", "TOGGLE_MODE", "DESKTOP_SCROLL", "GHOST_CURSOR",
+BOOL_KEYS = {"NATURAL", "TOGGLE_MODE", "LATCHED_DRAG_MODE",
+             "DESKTOP_SCROLL", "GHOST_CURSOR",
              "SNAP_CURSOR_ON_RELEASE", "ALLOW_KEYBOARDS"}
 DEVICE_KEYS = {"EXTRA_DEVICES", "IGNORE_DEVICES"}
 # Zero would divide by zero (TICK_HZ, PX_PER_NOTCH) or make the daemon
@@ -535,11 +537,14 @@ class State:
 
     def __init__(self, ui):
         self.ui = ui
+        # Keep cancellation releases suppressed across scroll-session resets.
+        self.eat_buttons = set()
         self.reset()
 
     def reset(self):
         self.pending = False      # middle held, deadzone not yet exceeded
-        self.active = False       # hold-drag scrolling
+        self.active = False       # anchored drag scrolling
+        self.latched = False      # active drag whose middle button was released
         self.toggled = False      # toggle-mode scrolling (no button held)
         self.passthrough = False  # middle held over a blacklisted app
         self.eat_release = None   # button whose release to swallow (toggle)
@@ -601,8 +606,12 @@ def _snap_cursor(ui, dx, dy):
         ui.syn()
 
 
-def _finish_release(st, ui, notifier):
+def _finish_release(st, ui, notifier, allow_latch=True):
     """Finish a middle release after its evdev report is complete."""
+    if allow_latch and LATCHED_DRAG_MODE and not TOGGLE_MODE and st.active:
+        st.release_pending = False
+        st.latched = True
+        return False
     was_click, dx, dy = st.release()
     if SNAP_CURSOR_ON_RELEASE:
         sx = int(dx * GHOST_SCALE)
@@ -626,6 +635,11 @@ def _accumulate(st, ev):
         st.dx = _clamp(st.dx + ev.value)
     else:
         st.dy = _clamp(st.dy + ev.value)
+    # Activate immediately: a fast drag and release can precede the next tick.
+    if LATCHED_DRAG_MODE and not TOGGLE_MODE and st.pending:
+        if abs(st.dx) > DEADZONE_PX or abs(st.dy) > DEADZONE_PX:
+            st.pending = False
+            st.active = True
 
 
 def speed_px(offset):
@@ -734,6 +748,11 @@ def _resync(ui, dev, held, st):
     go of the difference, so a dropped release can't leave a stuck button.
     """
     active = dev.active_keys()
+    if LATCHED_DRAG_MODE and not TOGGLE_MODE:
+        # Lost reports cannot safely establish a latch or complete a click.
+        if not st.passthrough:
+            st.reset()
+        st.eat_buttons.intersection_update(active)
     changed = False
     for code in list(held):
         if code not in active:
@@ -879,6 +898,25 @@ async def pump(path, dev, states, tasks, focus, our_paths, notifier):
     log.info("grabbed %s (%s)", dev.name, path)
     try:
         async for ev in dev.async_read_loop():
+            if (LATCHED_DRAG_MODE and not TOGGLE_MODE
+                    and ev.type == e.EV_KEY and _is_button(ev.code)):
+                if ev.code in st.eat_buttons:
+                    if ev.value == 0:
+                        st.eat_buttons.discard(ev.code)
+                    continue
+                if ev.value == 1:
+                    scrolling = [s for s in states.values() if s.active]
+                    if scrolling:
+                        # A button on any grabbed mouse cancels all latches.
+                        for scrolling_st in scrolling:
+                            if (not scrolling_st.latched
+                                    and not scrolling_st.release_pending):
+                                scrolling_st.eat_buttons.add(e.BTN_MIDDLE)
+                            _finish_release(scrolling_st, scrolling_st.ui,
+                                            notifier, allow_latch=False)
+                        st.eat_buttons.add(ev.code)
+                        notifier.set(False)
+                        continue
             if TOGGLE_MODE and ev.type == e.EV_KEY and _is_button(ev.code):
                 if _toggle_key(ev, st, ui, focus):
                     continue
@@ -1214,6 +1252,9 @@ def parse_args(argv=None):
                    default=None, dest="toggle_mode",
                    help="click to start/stop autoscroll (Windows-Explorer "
                         "style) instead of hold-and-drag")
+    p.add_argument("--latched-drag-mode", action=argparse.BooleanOptionalAction,
+                   default=None, help="keep drag autoscroll latched on release; "
+                                      "ignored in toggle mode")
     p.add_argument("--desktop", action=argparse.BooleanOptionalAction,
                    default=None, dest="desktop_scroll",
                    help="also autoscroll over the desktop and panels "
@@ -1265,6 +1306,8 @@ def cli():
         globals()["NATURAL"] = args.natural
     if args.toggle_mode is not None:
         globals()["TOGGLE_MODE"] = args.toggle_mode
+    if args.latched_drag_mode is not None:
+        globals()["LATCHED_DRAG_MODE"] = args.latched_drag_mode
     if args.desktop_scroll is not None:
         globals()["DESKTOP_SCROLL"] = args.desktop_scroll
     if args.ghost_cursor is not None:
@@ -1281,10 +1324,11 @@ def cli():
         report_devices()
         return
     log.debug("tunables: %s NATURAL=%s TOGGLE_MODE=%s DESKTOP_SCROLL=%s "
-              "GHOST_CURSOR=%s SNAP_CURSOR=%s ALLOW_KEYBOARDS=%s BLACKLIST=%s "
+              "LATCHED_DRAG_MODE=%s GHOST_CURSOR=%s SNAP_CURSOR=%s "
+              "ALLOW_KEYBOARDS=%s BLACKLIST=%s "
               "EXTRA_DEVICES=%s IGNORE_DEVICES=%s",
               " ".join(f"{k}={globals()[k]:g}" for k in sorted(FLOAT_KEYS)),
-              NATURAL, TOGGLE_MODE, DESKTOP_SCROLL, GHOST_CURSOR,
+              NATURAL, TOGGLE_MODE, DESKTOP_SCROLL, LATCHED_DRAG_MODE, GHOST_CURSOR,
               SNAP_CURSOR_ON_RELEASE, ALLOW_KEYBOARDS, BLACKLIST,
               EXTRA_DEVICES, IGNORE_DEVICES)
     asyncio.run(main())
