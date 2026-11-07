@@ -51,6 +51,9 @@ FLOATS = [
 ]
 # key, label, subtitle
 BOOLS = [
+    ("LATCHED_DRAG_MODE", "Latch drag scrolling",
+     "Keep scrolling after releasing a middle-drag; any mouse click stops it. "
+     "Quick middle-clicks stay native. Ignored when toggle mode is on."),
     ("TOGGLE_MODE", "Toggle mode",
      "Click the middle button to start autoscroll and again to stop, "
      "instead of holding and dragging."),
@@ -71,7 +74,8 @@ DEFAULTS = {
     "DEADZONE_PX": 15.0, "SPEED_MULT": 0.008, "SPEED_EXP": 2.2,
     "MAX_PX_PER_SEC": 30000.0, "PX_PER_NOTCH": 55.0, "MAX_DRAG_PX": 1200.0,
     "TICK_HZ": 90.0, "GHOST_SCALE": 1.0, "NATURAL": False,
-    "TOGGLE_MODE": False, "DESKTOP_SCROLL": False, "GHOST_CURSOR": True,
+    "TOGGLE_MODE": False, "LATCHED_DRAG_MODE": False,
+    "DESKTOP_SCROLL": False, "GHOST_CURSOR": True,
     "SNAP_CURSOR_ON_RELEASE": True,
     "BLACKLIST": "freecad, orcaslicer, minecraft",
     "EXTRA_DEVICES": "", "IGNORE_DEVICES": "",
